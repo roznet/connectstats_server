@@ -112,6 +112,9 @@ class GarminProcess {
         if( isset($_GET['verbose']) && $_GET['verbose']==1){
             $this->set_verbose( true );
         }
+
+        include( 'config.php' );
+        $this->api_config = $api_config;
     }
 
     function set_verbose($verbose){
@@ -259,7 +262,7 @@ class GarminProcess {
         );
 
         # See if we already have registered the user
-        $user = $this->get_url_data( 'https://healthapi.garmin.com/wellness-api/rest/user/id', $userAccessToken, $userAccessTokenSecret );
+        $user = $this->get_url_data( $this->api_config['url_user_id'], $userAccessToken, $userAccessTokenSecret );
         if( $user ){
             $userjson = json_decode( $user, true );
             if( isset( $userjson['userId'] ) ){
@@ -273,7 +276,6 @@ class GarminProcess {
                 }else{
                     $this->sql->insert_or_update( 'users', array( 'userId' => $userId ) );
                     $cs_user_id = $this->sql->insert_id();
-                    $this->sql->execute_query( "UPDATE tokens SET cs_user_id = $cs_user_id, userId = '$userId' WHERE token_id = $token_id" );
                 }
             }else{
                 $userId = NULL;
@@ -465,9 +467,8 @@ class GarminProcess {
     }
     
     function authorization_header( $full_url, $userAccessToken, $userAccessTokenSecret, $nonce = NULL, $timestamp = NULL){
-        include( 'config.php' );
-        $consumerKey = $api_config['consumerKey'];;
-        $consumerSecret = $api_config['consumerSecret'];
+        $consumerKey = $this->api_config['consumerKey'];;
+        $consumerSecret = $this->api_config['consumerSecret'];
     
         $url_info = parse_url( $full_url );
 
@@ -813,7 +814,7 @@ class GarminProcess {
                                'summaryEndTimeInSeconds' => $end,
                                'backfillEndTime'=>$backfillend );
 
-                $url = sprintf( 'https://healthapi.garmin.com/wellness-api/rest/backfill/activities?summaryStartTimeInSeconds=%s&summaryEndTimeInSeconds=%s', $next['summaryStartTimeInSeconds'], $next['summaryEndTimeInSeconds'] );
+                $url = sprintf( $this->api_config['url_backfill_activities'], $next['summaryStartTimeInSeconds'], $next['summaryEndTimeInSeconds'] );
                 $data = $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
                 if( true || $this->status->success() ){
                     $this->sql->insert_or_update( 'backfills', $next );
@@ -997,7 +998,7 @@ class GarminProcess {
         if( count( $res ) > 0){
             printf( 'Missing %d activities between %s and %s'.PHP_EOL, count( $res ), strftime("%Y-%m-%d", $mintime ), strftime("%Y-%m-%d", $maxtime ) );
             $endtime = $mintime + (24*60*60*90); // 90 is per max throttle from garmin
-            $url = sprintf( 'https://healthapi.garmin.com/wellness-api/rest/backfill/activities?summaryStartTimeInSeconds=%s&summaryEndTimeInSeconds=%s', $mintime, $endtime );
+            $url = sprintf( $this->api_config['url_backfill_activities'], $mintime, $endtime );
             $user = $this->user_info_for_token_id( 1 );
             $data = $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
         }

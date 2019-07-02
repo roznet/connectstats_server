@@ -1,0 +1,7 @@
+logs
+.DS_Store
+error_log
+*~
+\#*
+\.\#*
+t.*
