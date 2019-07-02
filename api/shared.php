@@ -449,7 +449,6 @@ class GarminProcess {
     }
     
     function authenticate_header($token_id = NULL){
-        $full_url = sprintf( '%s/%s', str_replace( $_SERVER['SCRIPT_URL'], '', $_SERVER['SCRIPT_URI'] ), $_SERVER['REQUEST_URI'] );
         $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
         $header = apache_request_headers()['Authorization'];
 
@@ -466,7 +465,7 @@ class GarminProcess {
     }
     
     function authorization_header( $full_url, $userAccessToken, $userAccessTokenSecret, $nonce = NULL, $timestamp = NULL){
-        global $api_config;
+        include( 'config.php' );
         $consumerKey = $api_config['consumerKey'];;
         $consumerSecret = $api_config['consumerSecret'];
     
