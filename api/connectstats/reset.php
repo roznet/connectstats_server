@@ -6,6 +6,9 @@ include_once('../shared.php' );
 
 $process = new GarminProcess();
 
-$process->reset_schema();
+if( ! $process->reset_schema() ){
+    header('HTTP/1.1 401 Unauthorized error');
+    die;
+}
     
 ?>

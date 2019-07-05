@@ -1,6 +1,6 @@
 <?php 
 //
-// This is intended to 
+// This is intended to only be run from the command line, not remotely
 //
 
 

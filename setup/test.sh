@@ -26,7 +26,7 @@ function reset_db {
 
 function signed_curl {
 	echo $1 $2
-	auth=`(cd ../garmin;php sign.php $1 "$2")`
+	auth=`(cd ../api/garmin;php sign.php $1 "$2")`
 	echo $auth
 	curl -v -H "Authorization: $auth" "$2"
 }
@@ -36,4 +36,5 @@ base_url='http://localhost/dev'
 reset_db
 build_local_from_scratch
 # check we can recover the list
+
 signed_curl 1 'http://localhost/dev/api/connectstats/search?token_id=1'

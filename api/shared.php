@@ -131,6 +131,9 @@ class GarminProcess {
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
             }
+            return true;
+        }else{
+            return false;
         }
     }
     
@@ -450,17 +453,18 @@ class GarminProcess {
         return $maps;
     }
     
-    function authenticate_header($token_id = NULL){
+    function authenticate_header($token_id){
         $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
         $header = apache_request_headers()['Authorization'];
 
         $maps = $this->interpret_authorization_header( $header );
         $userAccessToken = $maps['oauth_token'];
-        $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret FROM tokens WHERE userAccessToken = '$userAccessToken'" );
+        $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'" );
         $reconstructed = $this->Authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
         $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
         $reconmaps = $this->interpret_authorization_header( $reconstructed );
-        if( $reconmaps['oauth_signature'] != $maps['oauth_signature'] ){
+        // Check if token id is consistent with the token id of the access token
+        if( $reconmaps['oauth_signature'] != $maps['oauth_signature'] || $row['token_id'] != $token_id ){
             header('HTTP/1.1 401 Unauthorized error');
             die;
         }
@@ -545,6 +549,12 @@ class GarminProcess {
         return $data;
     }
 
+    function validate_user( $token_id ){
+        $user = $this->user_info_for_id($token_id);
+        unset( $user['userAccessTokenSecret'] );
+        return $user;
+    }
+    
     function validate_input_id( $val ){
         return intval($val);
     }
@@ -713,6 +723,17 @@ class GarminProcess {
         }
     }
 
+    function backfill_process($token_id, $start_year, $force = false){
+        $year = max(intval($start_year),2000);
+        $date = mktime(0,0,0,1,1,$year);
+        $status = $process->backfill_should_start( $token_id, $date, $force );
+        if( $status['start'] == true ){
+            $process->backfill( $token_id, $date );
+        }
+        return( $status );
+        
+    }
+    
     function backfill_should_start( $token_id, $start_date, $force = false ){
         $rv = array( 'start' => true, 'status' => 'No backfill yet' );
         
