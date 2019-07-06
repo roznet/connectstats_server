@@ -138,12 +138,13 @@ class GarminProcess {
     }
     
     function ensure_schema() {
-        $schema_version = 3;
+        $schema_version = 4;
         $schema = array(
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'userId' => 'VARCHAR(128)',
                 'backfillEndTime' => 'BIGINT(20) UNSIGNED',
+                'backfillStartTime' => 'BIGINT(20) UNSIGNED',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
@@ -155,6 +156,7 @@ class GarminProcess {
                 'userAccessTokenSecret' => 'VARCHAR(128)',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                'backfillStartTime' => 'BIGINT(20) UNSIGNED',
                 'backfillEndTime' => 'BIGINT(20) UNSIGNED'
             ),
             "activities" =>  array(
@@ -264,7 +266,7 @@ class GarminProcess {
                          'userAccessTokenSecret' => $userAccessTokenSecret
         );
 
-        # See if we already have registered the user
+        # Check the token is valid and we can get a user id from garmin
         $user = $this->get_url_data( $this->api_config['url_user_id'], $userAccessToken, $userAccessTokenSecret );
         if( $user ){
             $userjson = json_decode( $user, true );
@@ -281,7 +283,10 @@ class GarminProcess {
                     $cs_user_id = $this->sql->insert_id();
                 }
             }else{
-                $userId = NULL;
+                # If we didn't get a user id from garmin, just die as unauthorized
+                # this will avoid people registering random token
+                header('HTTP/1.1 401 Unauthorized error');
+                die;
             }
             $values['cs_user_id'] = $cs_user_id;
         }
@@ -550,7 +555,7 @@ class GarminProcess {
     }
 
     function validate_user( $token_id ){
-        $user = $this->user_info_for_id($token_id);
+        $user = $this->user_info_for_token_id($token_id);
         unset( $user['userAccessTokenSecret'] );
         return $user;
     }
@@ -726,9 +731,9 @@ class GarminProcess {
     function backfill_process($token_id, $start_year, $force = false){
         $year = max(intval($start_year),2000);
         $date = mktime(0,0,0,1,1,$year);
-        $status = $process->backfill_should_start( $token_id, $date, $force );
+        $status = $this->backfill_should_start( $token_id, $date, $force );
         if( $status['start'] == true ){
-            $process->backfill( $token_id, $date );
+            $this->backfill( $token_id, $date );
         }
         return( $status );
         
@@ -827,6 +832,7 @@ class GarminProcess {
             if(isset($sofar['MAX(summaryEndTimeInSeconds)'] ) ){
                 $start = $sofar['MAX(summaryEndTimeInSeconds)'];
                 $backfillend = $sofar['MAX(backfillEndTime)'];
+                $backfillstart = $sofar['MIN(summaryStartTimeInSeconds)'];
 
                 $end = $start + (24*60*60*$days);
                 $moreToDo = ($end < $backfillend);
@@ -848,9 +854,9 @@ class GarminProcess {
                 $this->sleep($sleep);
                 $this->exec_backfill_cmd($token_id, $days );
             }else{
-                $row = array( 'backfillEndTime' => $backfillend, 'token_id' => $token_id );
+                $row = array( 'backfillEndTime' => $backfillend, 'backfillStartTime' => $backfillstart,'token_id' => $token_id );
                 $this->sql->insert_or_update( 'tokens', $row, array( 'token_id' ));
-                $row = array( 'backfillEndTime' => $backfillend, 'cs_user_id' => $user['cs_user_id'] );
+                $row = array( 'backfillEndTime' => $backfillend, 'backfillStartTime' => $backfillstart, 'cs_user_id' => $user['cs_user_id'] );
                 $this->sql->insert_or_update( 'users', $row, array( 'cs_user_id' ));
             }
         }
