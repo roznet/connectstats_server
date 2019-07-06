@@ -138,7 +138,7 @@ class GarminProcess {
     }
     
     function ensure_schema() {
-        $schema_version = 4;
+        $schema_version = 1;
         $schema = array(
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
