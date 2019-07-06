@@ -412,8 +412,13 @@ class GarminProcess {
     }
 
     function exec_backfill_cmd( $token_id, $days ){
-        $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-        $command = sprintf( 'php runbackfill.php %s %s > %s.log 2> %s-err.log &', $token_id, $days, $log, $log );
+
+        if( is_writable( 'tmp' ) ){
+            $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+            $command = sprintf( 'php runbackfill.php %s %s > %s.log 2> %s-err.log &', $token_id, $days, $log, $log );
+        }else{
+            $command = sprintf( 'php runbackfill.php %s %s > /dev/null 2> /dev/null &', $token_id, $days, $log, $log );
+        }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
         }
@@ -430,9 +435,12 @@ class GarminProcess {
             $file_ids = implode( ' ', $chunk );
 
             $command_base = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
-            $logfile = str_replace( ' ', '_', sprintf( 'tmp/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
-
-            $command = sprintf( '%s > %s.log 2> %s-err.log &', $command_base, $logfile, $logfile );
+            if( is_writable( 'tmp' ) ){
+                $logfile = str_replace( ' ', '_', sprintf( 'tmp/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
+                $command = sprintf( '%s > %s.log 2> %s-err.log &', $command_base, $logfile, $logfile );
+            }else{
+                $command = sprintf( '%s > /dev/null 2> /dev/null', $command_base );
+            }
             if( $this->verbose ){
                 printf( 'Exec %s'.PHP_EOL, $command );
             }

@@ -41,13 +41,19 @@ class Test {
             # upload some fit files from the simulator
             sprintf( 'curl  -v -H "Content-Type: application/json;charset=utf-8" -d @sample-file-local.json "%s/api/garmin/file"', $base_url ),
             # upload activities
-            sprintf( 'curl  -v -H "Content-Type: application/json;charset=utf-8" -d @sample-backfill-activities.json "%s/api/garmin/activities"', $base_url )
+            sprintf( 'curl  -v -H "Content-Type: application/json;charset=utf-8" -d @sample-backfill-activities.json "%s/api/garmin/activities"', $base_url ),
+
         );
         foreach( $commands as $command ){
             printf( 'Starting: %s'.PHP_EOL,  $command );
             exec( "$command ");
         }
-        
+
+        # simulate backfill callback
+        $rv = $this->process->get_url_data( sprintf( '%s/api/garmin/backfill?token_id=1&start_year=2019"', $base_url ), "testtoken", "testsecret" );
+        print_r( $rv );
+
+
     }
     
     function run_command($command, $args){
