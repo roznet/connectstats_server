@@ -461,25 +461,39 @@ class GarminProcess {
 
         foreach( $split as $def ) {
             $sub = explode('=', str_replace( '"', '', $def ) );
-            $maps[ $sub[0] ] = $sub[1];
+            if( count( $sub ) > 0 ){
+                $maps[ $sub[0] ] = $sub[1];
+            }
         }
         return $maps;
     }
     
     function authenticate_header($token_id){
+        $failed = true;
+        
         $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
-        $header = apache_request_headers()['Authorization'];
+        if( isset( apache_request_headers()['Authorization'] ) ){
+            $header = apache_request_headers()['Authorization'];
 
-        $maps = $this->interpret_authorization_header( $header );
-        $userAccessToken = $maps['oauth_token'];
-        $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'" );
-        $reconstructed = $this->Authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
-        $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
-        $reconmaps = $this->interpret_authorization_header( $reconstructed );
-        // Check if token id is consistent with the token id of the access token
-        if( $reconmaps['oauth_signature'] != $maps['oauth_signature'] || $row['token_id'] != $token_id ){
+            $maps = $this->interpret_authorization_header( $header );
+            if( isset( $maps['oauth_token'] ) && isset( $maps['oauth_nonce'] ) && isset( $maps['oauth_signature'] ) ){
+                $userAccessToken = $maps['oauth_token'];
+                $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'" );
+                if( isset( $row['token_id'] ) ){
+                    $reconstructed = $this->Authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
+                    $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
+                    $reconmaps = $this->interpret_authorization_header( $reconstructed );
+                    // Check if token id is consistent with the token id of the access token
+                    if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] && $row['token_id'] == $token_id ){
+                        $failed = false;
+                    }
+                }
+            }
+        }
+        if( $failed ){
             header('HTTP/1.1 401 Unauthorized error');
             die;
+
         }
     }
     
