@@ -417,7 +417,7 @@ class GarminProcess {
             $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php runbackfill.php %s %s > %s.log 2> %s-err.log &', $token_id, $days, $log, $log );
         }else{
-            $command = sprintf( 'php runbackfill.php %s %s > /dev/null 2> /dev/null &', $token_id, $days, $log, $log );
+            $command = sprintf( 'php runbackfill.php %s %s > /dev/null 2> /dev/null &', $token_id, $days );
         }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
