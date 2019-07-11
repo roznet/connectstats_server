@@ -785,7 +785,7 @@ class GarminProcess {
                                          strftime( '%Y-%m-%d', $row['MAX(summaryEndTimeInSeconds)'] ),
                                          $eta_min, $eta_sec );
             }else{
-                $rv['status'] = sprintf( 'Backfill from %s to %s completed on %s',
+                $rv['status'] = sprintf( 'Synchronisation from %s to %s completed on %s',
                                          strftime( '%Y-%m-%d', $row['MIN(summaryStartTimeInSeconds)'] ),
                                          strftime( '%Y-%m-%d', $row['MAX(summaryEndTimeInSeconds)'] ),
                                          strftime( '%Y-%m-%d', $row['MAX(backfillEndTime)'] ) );
@@ -794,13 +794,13 @@ class GarminProcess {
             if( $row['MAX(summaryEndTimeInSeconds)'] < $row['MAX(backfillEndTime)'] && $row['UNIX_TIMESTAMP(MAX(ts))'] < $oldthreshold){
                 $rv['start'] = true;
 
-                $rv['status'] = sprintf( 'Previous backfill seem stalled at %s (now %s)', strftime("%Y-%m-%d, %H:%M:%S", $row['UNIX_TIMESTAMP(MAX(ts))']), strftime("%Y-%m-%d, %H:%M:%S", time() ) );
+                $rv['status'] = sprintf( 'Previous Synchronisation with Garmin account seems stalled at %s (now %s)', strftime("%Y-%m-%d, %H:%M:%S", $row['UNIX_TIMESTAMP(MAX(ts))']), strftime("%Y-%m-%d, %H:%M:%S", time() ) );
             }
 
             // or if asked year is before current start
             if( $row['MIN(summaryStartTimeInSeconds)'] > $start_date ){
                 $rv['start'] = true;
-                $rv['status'] = sprintf( 'Previous backfill did not go back far enough %s < %s',
+                $rv['status'] = sprintf( 'Previous s did not go back far enough %s < %s',
                                          strftime("%Y-%m-%d", $start_date ),
                                          strftime("%Y-%m-%d", $row['MIN(summaryStartTimeInSeconds)'] ) );
             }
