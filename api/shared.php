@@ -762,7 +762,7 @@ class GarminProcess {
     }
     
     function backfill_should_start( $token_id, $start_date, $force = false ){
-        $rv = array( 'start' => true, 'status' => 'No backfill yet' );
+        $rv = array( 'start' => true, 'status' => 'New account, starting synchronisation with garmin' );
         
         $row = $this->sql->query_first_row( sprintf( 'SELECT UNIX_TIMESTAMP(MAX(ts)),MIN(summaryStartTimeInSeconds),MAX(summaryEndTimeInSeconds),MAX(backfillEndTime) FROM backfills WHERE token_id = %d', $token_id ) );
 
@@ -780,7 +780,7 @@ class GarminProcess {
                 $eta_min = intval($eta / 60 );
                 $eta_sec = $eta - ( $eta_min * 60.0 );
                 
-                $rv['status'] = sprintf( 'Backfill running (completed %s to %s, eta = %d:%d)',
+                $rv['status'] = sprintf( 'Synchronisation of new account with garmin still running (completed %s to %s, Estimated remaining time %d:%d)',
                                          strftime( '%Y-%m-%d', $row['MIN(summaryStartTimeInSeconds)'] ),
                                          strftime( '%Y-%m-%d', $row['MAX(summaryEndTimeInSeconds)'] ),
                                          $eta_min, $eta_sec );
