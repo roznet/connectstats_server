@@ -490,7 +490,7 @@ class GarminProcess {
                 $reconmaps = $this->interpret_authorization_header( $reconstructed );
                 // Check if token id is consistent with the token id of the access token
 
-                if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] && $row['token_id'] == $token_id ){
+                if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] ){
                     $failed = false;
                 }
             }
@@ -1090,6 +1090,7 @@ class GarminProcess {
 
     function maintenance_export_table( $table, $key, $key_start ){
         if( is_writable( 'tmp' ) ){
+            $db = $this->api_config['database'];
             $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
             $logfile = sprintf( 'tmp/%s_%s.log', $table, $key_start );
             $defaults = sprintf( 'tmp/.%s.cnf', $db );
