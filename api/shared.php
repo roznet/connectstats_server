@@ -1100,7 +1100,7 @@ class GarminProcess {
                 // Special case
                 $limit = ' LIMIT 250';
             }
-            $command = sprintf( 'mysqldump --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s>%s%s"', $defaults, $outfile, $this->api_config['db_username'], $db, $table, $key, $key_start. $limit );
+            $command = sprintf( 'mysqldump --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s>%s%s"', $defaults, $outfile, $this->api_config['db_username'], $db, $table, $key, $key_start, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
