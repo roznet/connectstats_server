@@ -195,6 +195,7 @@ class GarminProcess {
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
             'backfills' => array(
+                'backfill_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
                 'token_id' => 'BIGINT(20) UNSIGNED',
                 'summaryStartTimeInSeconds' => 'BIGINT(20) UNSIGNED',
@@ -290,7 +291,6 @@ class GarminProcess {
             }
             $values['cs_user_id'] = $cs_user_id;
         }
-
 
         $this->sql->insert_or_update( 'tokens', $values, array( 'userAccessToken' ) );
         $token_id = $this->sql->insert_id();
@@ -466,6 +466,32 @@ class GarminProcess {
             }
         }
         return $maps;
+    }
+
+    function authenticate_system_call(){
+        $failed = true;
+        
+        $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
+        if( isset( apache_request_headers()['Authorization'] ) ){
+            $header = apache_request_headers()['Authorization'];
+
+            $maps = $this->interpret_authorization_header( $header );
+            if( isset( $maps['oauth_token'] ) && isset( $maps['oauth_nonce'] ) && isset( $maps['oauth_signature'] ) ){
+                $reconstructed = $this->Authorization_header( $full_url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
+                $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
+                $reconmaps = $this->interpret_authorization_header( $reconstructed );
+                // Check if token id is consistent with the token id of the access token
+
+                if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] && $row['token_id'] == $token_id ){
+                    $failed = false;
+                }
+            }
+        }
+
+        if( $failed ){
+            header('HTTP/1.1 401 Unauthorized error');
+            die;
+        }
     }
     
     function authenticate_header($token_id){
