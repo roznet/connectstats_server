@@ -13,12 +13,13 @@ class DebugKey {
 
 }
 
-if( isset( $argv[1] ) && ! isset( $_SERVER['HTTP_HOST'] ) && ! isset( $_SERVER['REQUEST_METHOD'] ) ){
+$process =  new GarminProcess();
+
+if( $process->ensure_commandline($argv,1) ){
     $debugkey = new DebugKey();
     $tokenIds = $argv;
     array_shift( $tokenIds );
 
-    $process =  new GarminProcess();
 
     $filter = array();
     foreach( $tokenIds as $tokenId ){

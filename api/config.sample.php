@@ -8,7 +8,6 @@ $api_config = array(
 	'serviceKeySecret' => '',
 
 	'db_host' => '',
-	'db_database' => '',
 	'db_username' => '',
 	'db_password' => '',
 
