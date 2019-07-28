@@ -4,6 +4,9 @@ $api_config = array(
     'consumerKey' => '',
     'consumerSecret' => '',
 
+	'serviceKey' => '',
+	'serviceKeySecret' => '',
+
 	'db_host' => '',
 	'db_database' => '',
 	'db_username' => '',
