@@ -8,15 +8,14 @@ $process->authenticate_system_call();
 $process->ensure_schema();
 
 $done = false;
-if( isset( $_GET['database'] ) && $_GET['table'] ){
-    $db = $_GET['database'];
+if( $_GET['table'] ){
     $table = $_GET['table'];
     $keys = array( 'activities' => 'activity_id',
                    'backfills' => 'backfill_id',
                    'assets' => 'asset_id',
                    'fitfiles' => 'file_id',
                    'tokens' => 'token_id',
-                   'users' => 'user_id'
+                   'users' => 'cs_user_id'
     );
 
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){
