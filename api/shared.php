@@ -1,5 +1,7 @@
 <?php
 
+error_reporting(E_ALL);
+
 /*
  *  ----- Garmin Service API -----
  *  User Registration
@@ -1161,10 +1163,34 @@ class GarminProcess {
         return NULL;
     }
 
+    function query_activities_from_id( $cs_user_id, $from_activity_id, $limit ){
+        $to_activity_id = $from_activity_id + $limit;
+        $query = "SELECT activity_id,json FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
+        
+        $json = $this->query_activities_json($query);
+        
+        $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
+        $count = $this->sql->query_first_row( $query );
+
+        $rv = array( 'activityList' => $json, 'paging' => array( 'total' => intval( $count['COUNT(json)'] ), 'from_activity_id' => intval($from_activity_id), 'limit' => intval($limit) ));
+        
+        print( json_encode( $rv ) );
+
+    }
+    
     function query_activities( $cs_user_id, $start, $limit ){
-
         $query = "SELECT activity_id,json FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
+        $json = $this->query_activities_json($query);
 
+        $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
+        $count = $this->sql->query_first_row( $query );
+
+        $rv = array( 'activityList' => $json, 'paging' => array( 'total' => intval( $count['COUNT(json)'] ), 'start' => intval($start), 'limit' => intval($limit) ));
+        
+        print( json_encode( $rv ) );
+    }
+    
+    function query_activities_json( $query ){
         $res = $this->sql->query_as_array( $query );
         $json = array();
         foreach( $res as  $one ){
@@ -1175,12 +1201,8 @@ class GarminProcess {
                 array_push($json, $activity_json );
             }
         }
-        $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
-        $count = $this->sql->query_first_row( $query );
-
-        $rv = array( 'activityList' => $json, 'paging' => array( 'total' => intval( $count['COUNT(json)'] ), 'start' => intval($start), 'limit' => intval($limit) ));
-        
-        print( json_encode( $rv ) );
+        return $json;
+            
     }
 };
     
