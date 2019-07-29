@@ -12,7 +12,7 @@ if( isset( $_GET['userAccessToken'] ) && isset( $_GET['userAccessTokenSecret'] )
         print( json_encode( array( 'error' => 'Failed to register' ) ) );
     }
 }else{
-    header('HTTP/1.1 500 Internal Server Error');
+    header('HTTP/1.1 400 Bad Request');
 }
 
 ?>

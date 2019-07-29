@@ -540,7 +540,10 @@ class GarminProcess {
         $url_info = parse_url( $full_url );
 
         $get_params = array();
-        parse_str( $url_info['query'], $get_params );
+        if( isset( $url_info['query'] ) ){
+            parse_str( $url_info['query'], $get_params );
+        }
+
         $url = sprintf( '%s://%s%s', $url_info['scheme'], $url_info['host'], $url_info['path'] );
 
         if( $nonce == NULL ){
@@ -1091,6 +1094,7 @@ class GarminProcess {
     }
 
     function maintenance_export_table( $table, $key, $key_start ){
+        $done = false;
         if( is_writable( 'tmp' ) ){
             $db = $this->api_config['database'];
             $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
@@ -1123,6 +1127,7 @@ class GarminProcess {
                 $done = true;
             }
         }
+        return $done;
     }
 
     function maintenance_backup_table( $table, $key ){

@@ -21,7 +21,7 @@ if( $_GET['table'] ){
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){
         $key = $keys[$table];
         $key_start = $_GET[ $keys[$table] ];
-        $process->maintenance_export_table( $table, $key, $key_start );
+        $done = $process->maintenance_export_table( $table, $key, $key_start );
     }
 }
 if( ! $done ){
