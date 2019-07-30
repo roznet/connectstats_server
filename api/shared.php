@@ -1103,7 +1103,6 @@ class GarminProcess {
             $user = $this->user_info_for_token_id( 1 );
             $data = $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
         }
-            
     }
 
     function maintenance_export_table( $table, $key, $key_start ){
