@@ -12,6 +12,7 @@ if( isset( $_GET['token_id'] ) ){
     $process->authenticate_header($token_id);
 
     $from_activity_id = 0;
+    $start = 0;
     
     if( isset( $_GET['start'] ) ){
         $start = intval( $_GET['start']);
@@ -29,10 +30,14 @@ if( isset( $_GET['token_id'] ) ){
     }
     $token = $process->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
 
-    if( $from_activity_id == 0 ){
-        $process->query_activities( $token['cs_user_id'], $start, $limit );
+    if( isset( $_GET['backfillformat'] ) && $_GET['backfillformat'] == 1 ){
+        $process->query_backfill( $token['cs_user_id'], $from_activity_id, $start,  $limit );
     }else{
-        $process->query_activities_from_id( $token['cs_user_id'], $from_activity_id, $limit );
+        if( $from_activity_id == 0 ){
+            $process->query_activities( $token['cs_user_id'], $start, $limit );
+        }else{
+            $process->query_activities_from_id( $token['cs_user_id'], $from_activity_id, $limit );
+        }
     }
 }
 ?>

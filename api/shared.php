@@ -148,7 +148,7 @@ class GarminProcess {
     }
     
     function ensure_schema() {
-        $schema_version = 1;
+        $schema_version = 2;
         $schema = array(
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -179,7 +179,8 @@ class GarminProcess {
                 'userId' => 'VARCHAR(128)',
                 'userAccessToken' => 'VARCHAR(128)',
                 'summaryId' => 'VARCHAR(128)',
-                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                'parent_activity_id' => 'BIGINT(20) UNSIGNED'
             ),
             "fitfiles" => array(
                 'file_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -403,7 +404,7 @@ class GarminProcess {
                             }
                         }
                         if( $this->status->success() ){
-                            $this->maintenance_after_process($table, $row);
+                            $this->maintenance_after_process($table, $row, $extra);
                         }
                     }
                     if( $command_ids ){
@@ -932,9 +933,21 @@ class GarminProcess {
         $this->sql->verbose = $this->verbose;
     }
     
-    function maintenance_after_process($table,$row){
+    function maintenance_after_process($table,$row,$json){
         $to_set = array();
         $other_to_set = array();
+
+
+        // if multi sport sub activity
+
+        if( isset( $json['parentSummaryId'] ) && $table == 'activities' ){
+            $query = sprintf( "SELECT activity_id FROM activities WHERE summaryId = '%s'", $json['parentSummaryId'] );
+            $parentrow = $this->sql->query_first_row( $query );
+            if( isset( $parentrow['activity_id'] ) ){
+                $parent_id = $parentrow['activity_id'];
+                $this->sql->execute_query( sprintf( 'UPDATE activities SET parent_activity_id = %d WHERE summaryId = %d', $parent_id, $row['summaryId'] ) );
+            }
+        }
 
         //
         // First see if we can update users
@@ -1155,9 +1168,18 @@ class GarminProcess {
         if( $file_id ){
             $query = "SELECT data FROM assets WHERE file_id = $file_id";
         }else if( $activity_id ){
-            $query = "SELECT data FROM activities act, assets ast WHERE act.file_id = ast.file_id AND act.activity_id = $activity_id";
+            $check = $this->sql->query_first_row( "SELECT activity_id,parent_activity_id FROM activities WHERE activity_id = $activity_id" );
+            if( isset( $check['parent_activity_id'] ) ){
+                $use_activity_id = $check['parent_activity_id'];
+            }else{
+                $use_activity_id = $activity_id;
+            }
+                
+            $query = "SELECT data FROM activities act, assets ast WHERE act.file_id = ast.file_id AND act.activity_id = $use_activity_id";
         }
-
+        if( $this->sql->verbose ){
+            printf( 'EXECUTE: %s'.PHP_EOL, $query );
+        }
         $stmt = $this->sql->connection->query($query);
         if( $stmt ){
             $results = $stmt->fetch_array( MYSQLI_ASSOC );
@@ -1170,7 +1192,7 @@ class GarminProcess {
 
     function query_activities_from_id( $cs_user_id, $from_activity_id, $limit ){
         $to_activity_id = $from_activity_id + $limit;
-        $query = "SELECT activity_id,json FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
+        $query = "SELECT activity_id,parent_activity_id,json FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
         
         $json = $this->query_activities_json($query);
         
@@ -1184,7 +1206,7 @@ class GarminProcess {
     }
     
     function query_activities( $cs_user_id, $start, $limit ){
-        $query = "SELECT activity_id,json FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
+        $query = "SELECT activity_id,parent_activity_id,json FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
         $json = $this->query_activities_json($query);
 
         $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
@@ -1194,6 +1216,28 @@ class GarminProcess {
         
         print( json_encode( $rv ) );
     }
+
+    // Replicate format of back fill
+    function query_backfill( $cs_user_id, $from_activity_id, $start, $limit ){
+        if( $from_activity_id == 0 ){
+            $query = "SELECT activity_id,json,userId,userAccessToken FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
+        }else{
+            $to_activity_id = $from_activity_id + $limit;
+            $query = "SELECT activity_id,json,userId,userAccessToken FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
+        }
+        
+        $res = $this->sql->query_as_array( $query );
+        $rv = array();
+        foreach( $res as $one ){
+            if( isset($one['json']) ){
+                $activity_json = json_decode( $one['json'], true );
+                $activity_json['userId'] = $one['userId'];
+                $activity_json['userAccessToken'] = $one['userAccessToken'];
+                array_push($rv, $activity_json);
+            }
+        }
+        print( json_encode( array( 'activities' => $rv ) ) );
+    }
     
     function query_activities_json( $query ){
         $res = $this->sql->query_as_array( $query );
@@ -1202,6 +1246,9 @@ class GarminProcess {
             if( isset($one['json']) ){
                 $activity_json = json_decode($one['json'], true );
                 $activity_json['cs_activity_id'] = $one['activity_id'];
+                if( isset( $one['parent_activity_id'] ) ){
+                    $activity_json['cs_parent_activity_id'] = $one['parent_activity_id'];
+                }
                               
                 array_push($json, $activity_json );
             }

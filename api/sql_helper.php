@@ -392,7 +392,7 @@ class sql_helper {
 			printf( "READONLY: %s\n", $query );
 		}else{
 			if( $this->verbose ){
-				printf( "EXECUTE:  %s\n", $query );
+				printf( "EXECUTE: %s\n", $query );
 			};
 			$this->current_query_str = $query;
 			$result = $this->connection->query( $query );
