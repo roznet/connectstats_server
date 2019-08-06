@@ -1155,10 +1155,14 @@ class GarminProcess {
             
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
-            $defaults = sprintf( 'tmp/.%s.cnf', $database );
+	    if( isset( $this->api_config['tmp'] ) ){
+		    $defaults = sprintf( '%s/.%s.cnf', $this->api_config['tmp'], $database );
+	    }else{
+		    $defaults = sprintf( 'tmp/.%s.cnf', $database );
+	    }
             file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
-            $command = sprintf( 'mysql --defaults-file=%s -u %s %s < %s', $defaults, $this->api_config['db_username'], $database, $sql_out );
+            $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
             system(  $command );
         }
     }
