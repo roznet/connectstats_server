@@ -12,7 +12,7 @@ if( isset( $_GET['token_id'] ) && isset( $_GET['start_year'] ) ){
         $force = true;
     }
 
-    $rv = $process->backfill_process( $token_id, intval($_GET['start_year']), $force );
+    $rv = $process->backfill_api_entry( $token_id, intval($_GET['start_year']), $force );
     print( json_encode( $rv ) );
 }
 ?>

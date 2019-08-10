@@ -13,7 +13,7 @@ if( isset( $argv[1] ) && isset( $argv[2] )){
         $sleep = 100;
     }
     $process->set_verbose(true);
-    if( $process->run_backfill( $token_id, $days,$sleep ) ){
+    if( $process->run_backfill( $token_id, $days, $sleep ) ){
         print( "More to do".PHP_EOL);
     }else{
         print( "Done".PHP_EOL);

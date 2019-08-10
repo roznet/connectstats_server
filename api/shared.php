@@ -139,6 +139,9 @@ class GarminProcess {
         }
     }
 
+    /**
+     *    This function will ensure that the script is called from the command line
+     */
     function ensure_commandline($argv, $min_args = 0){
         if( ! isset( $argv[$min_args] ) || count( $argv ) < $min_args || isset( $_SERVER['HTTP_HOST'] ) || isset( $_SERVER['REQUEST_METHOD'] ) ){
             header('HTTP/1.1 403 Forbidden');
@@ -422,13 +425,13 @@ class GarminProcess {
         return $rv;
     }
 
-    function exec_backfill_cmd( $token_id, $days ){
+    function exec_backfill_cmd( $token_id, $days, $sleep ){
 
         if( is_writable( 'tmp' ) ){
             $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php runbackfill.php %s %s > %s.log 2> %s-err.log &', $token_id, $days, $log, $log );
+            $command = sprintf( 'php runbackfill.php %s %s %s > %s.log 2> %s-err.log &', $token_id, $days, $sleep, $log, $log );
         }else{
-            $command = sprintf( 'php runbackfill.php %s %s > /dev/null 2> /dev/null &', $token_id, $days );
+            $command = sprintf( 'php runbackfill.php %s %s %s > /dev/null 2> /dev/null &', $token_id, $days, $sleep );
         }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
@@ -479,6 +482,10 @@ class GarminProcess {
         return $maps;
     }
 
+    /**
+     *   This function will check that the call has been authorised with the internal key
+     *   of the server. This should be called to valid any system call or maintenance calls.
+     */
     function authenticate_system_call(){
         $failed = true;
         
@@ -504,7 +511,15 @@ class GarminProcess {
             die;
         }
     }
-    
+
+    /**
+     *   Will check that the token_id is consistent with the authorization
+     *   header for the secret recorded in the database via oauth 1.0
+     *   In case of inconsistency it will terminate with a 401 unauthorized error
+     *
+     *   This function should be called before any processing of data from the database
+     *   is returned for protection of the user data
+     */
     function authenticate_header($token_id){
         $failed = true;
         
@@ -521,7 +536,9 @@ class GarminProcess {
                     $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
                     $reconmaps = $this->interpret_authorization_header( $reconstructed );
                     // Check if token id is consistent with the token id of the access token
-                    if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] && $row['token_id'] == $token_id ){
+
+
+                    if( urldecode($reconmaps['oauth_signature']) == urldecode($maps['oauth_signature']) && $row['token_id'] == $token_id ){
                         $failed = false;
                     }
                 }
@@ -533,7 +550,12 @@ class GarminProcess {
 
         }
     }
-    
+
+    /**
+     *   Compute the authorization header using the oauth 1.0 method
+     *   nonce and timestamp can be specified to verify an existing signature
+     *   otherwise they will be generated
+     */
     function authorization_header( $full_url, $userAccessToken, $userAccessTokenSecret, $nonce = NULL, $timestamp = NULL){
         $consumerKey = $this->api_config['consumerKey'];;
         $consumerSecret = $this->api_config['consumerSecret'];
@@ -567,8 +589,6 @@ class GarminProcess {
             'oauth_timestamp' => $timestamp,
             'oauth_version' => $version
         );
-
-                     
         $all_params = array_merge( $oauth_params, $get_params );
         $params_order = array_keys( $all_params );
         sort($params_order);
@@ -592,10 +612,14 @@ class GarminProcess {
         }
 
         $header = sprintf( 'Authorization: OAuth %s', implode(', ', $headers) );
-    
+
         return $header;
     }
 
+    /**
+     *    Execute a curl query by adding a oauth 1.0 signature for the
+     *    corresponding userAccessToken and tokenSecret
+     */
     function get_url_data($url, $userAccessToken, $userAccessTokenSecret){
         $ch = curl_init();
 
@@ -616,34 +640,62 @@ class GarminProcess {
         return $data;
     }
 
+    /**
+     *   This will validate that the token id exists. 
+     *   It will return all the information on the token if exist with
+     *   all secrets removed
+     */
     function validate_user( $token_id ){
         $user = $this->user_info_for_token_id($token_id);
         unset( $user['userAccessTokenSecret'] );
         return $user;
     }
-    
-    function validate_input_id( $val ){
+
+    /**
+     *   Validate input from the GET parameters for a database id
+     *   It should be called for any parameter passed to an sql query as an id
+     *   to protect injection attacks
+     */
+    function validate_input_id( $val ) : int {
         return intval($val);
     }
-    function validate_token( $val ){
+    
+    /**
+     *   Validate input from the GET parameters for a token
+     *   It should be called for any parameter passed to an sql query as an token
+     *   to protect injection attacks
+     */
+    function validate_token( $val ) : string {
         return filter_var( $val, FILTER_VALIDATE_REGEXP, array('options' => array( 'regexp' => '/^([-A-Za-z0-9]+)$/' ) ) );
     }
 
-    function validate_url( $val ){
+    /**
+     *   Validate input from the GET parameters for a valid url
+     *   It should be called for any parameter passed to an sql query as an url
+     *   to protect injection attacks
+     */
+    function validate_url( $val ) : string {
         return filter_var( $val, FILTER_VALIDATE_URL );
     }
-    
+
+    /**
+     *   Validate the data is a valid fit file by looking at
+     *   expected bytes in header
+     */
     function validate_fit_file( $data ){
         if( strlen($data) < 13 ){
             return false;
         }
         $rv = unpack( 'c3', $data, 9 );
-
+        // Equal to 'fit'
         return ( $rv[1] == 70 && $rv[2] == 73 && $rv[3] == 84 );
     }
 
-    
-    function run_file_callback( $table, $cbids ){
+
+    /**
+     *    This function is called in the background
+     */
+    function run_file_callback( string $table, array $cbids ){
         $this->ensure_schema();
         foreach( $cbids as $cbid ){
             $this->file_callback_one( $table, $cbid );
@@ -790,17 +842,31 @@ class GarminProcess {
         }
     }
 
-    function backfill_process($token_id, $start_year, $force = false){
+    /**
+     *   This function is called from the REST API 
+     *   and will trigger a back fromm process from start_year if
+     *   not already done
+     */
+    function backfill_api_entry($token_id, $start_year, $force = false){
         $year = max(intval($start_year),2000);
         $date = mktime(0,0,0,1,1,$year);
         $status = $this->backfill_should_start( $token_id, $date, $force );
         if( $status['start'] == true ){
-            $this->backfill( $token_id, $date );
+            // 3 days at a time, every 4 seconds
+            // should match the 90 days in 120 seconds throttle
+            $this->backfill_start_process( $token_id, $date, 3, 4 );
         }
         return( $status );
         
     }
-    
+
+    /**
+     *    This function will check that the back fill from the start date
+     *    is necessary by checking if either no back fill were registered
+     *    or the date is earlier than the last backfill.
+     *    If a backfill is currently running it will also return false to
+     *    avoid running multiple backfill at the same time
+     */
     function backfill_should_start( $token_id, $start_date, $force = false ){
         $rv = array( 'start' => true, 'status' => 'New account, starting synchronisation with garmin' );
         
@@ -851,7 +917,11 @@ class GarminProcess {
         return $rv;
     }
 
-    function backfill( $token_id, $date ){
+    /**
+     *   Start the backfill process by executing the first
+     *   backfill command in the background
+     */
+    function backfill_start_process( $token_id, $date, $days, $sleep ){
         $this->ensure_schema();
 
         $this->status->clear('backfills');
@@ -869,11 +939,11 @@ class GarminProcess {
                           'backfillEndTime' => time()
             );
             $this->sql->insert_or_update( 'backfills', $row );
-            $this->exec_backfill_cmd($token_id, 90 );
+            $this->exec_backfill_cmd($token_id, $days, $sleep );
         }
     }
     
-    function run_backfill( $token_id, $days, $sleep = 100 ){
+    function run_backfill( $token_id, $days, $sleep ){
         # Start from 2010, record request time
         #  move 90 days forward from 2010 until reach request time
         # return true is more to do, false if reach end
@@ -914,7 +984,7 @@ class GarminProcess {
                     printf( 'Requested %s days, Sleeping %s secs', $days, $sleep );
                 }
                 $this->sleep($sleep);
-                $this->exec_backfill_cmd($token_id, $days );
+                $this->exec_backfill_cmd($token_id, $days, $sleep );
             }else{
                 $row = array( 'backfillEndTime' => $backfillend, 'backfillStartTime' => $backfillstart,'token_id' => $token_id );
                 $this->sql->insert_or_update( 'tokens', $row, array( 'token_id' ));
@@ -1155,14 +1225,10 @@ class GarminProcess {
             
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
-	    if( isset( $this->api_config['tmp'] ) ){
-		    $defaults = sprintf( '%s/.%s.cnf', $this->api_config['tmp'], $database );
-	    }else{
-		    $defaults = sprintf( 'tmp/.%s.cnf', $database );
-	    }
+            $defaults = sprintf( 'tmp/.%s.cnf', $database );
             file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
-            $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
+            $command = sprintf( 'mysql --defaults-file=%s -u %s %s < %s', $defaults, $this->api_config['db_username'], $database, $sql_out );
             system(  $command );
         }
     }
