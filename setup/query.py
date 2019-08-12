@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
 import pprint
-import requests
-import urllib
+import http
+import urllib3
+import urllib.parse
 import time
 import string
 import random
@@ -91,20 +92,21 @@ class ConnectStatsRequest:
 
     def query_url(self, accessUrl ):
         headers = self.authentification_header( accessUrl )
+        pm = urllib3.PoolManager()
         
-        request = urllib.request.Request(accessUrl, headers=headers )
+        response = pm.request('GET', accessUrl, headers=headers )
 
-        try:
+        if response.status == 200:
             if self.verbose:
                 print( '> Request {}'.format( accessUrl ) )
-            response = urllib.request.urlopen( request )
-            contents = response.read()
+            contents = response.data
             if self.verbose:
                 print( '> Received {} bytes'.format( len(contents) ) )
-        except urllib.error.HTTPError as e:
+        else:
+            message = http.client.responses[response.status]
             if self.verbose:
-                print( '> Error: {}'.format( str( e ) ) )
-            contents = str( e )
+                print( '> Error: {} {}'.format( response.status, message ) )
+            contents = message.encode( 'utf-8' )
             
         return( contents )
         
