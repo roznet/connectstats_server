@@ -1,3 +1,5 @@
 tmp
 tests.php
 assets
+*.json
+*.fit
