@@ -4,6 +4,8 @@ include_once('../shared.php');
 
 $process = new GarminProcess();
 
+$process->ensure_commandline($argv??NULL);
+
 if( isset( $argv[1] ) && isset( $argv[2] )){
     $token_id = $process->validate_input_id($argv[1]);
     $days = MIN(intval($argv[2]),90); // no more than 90 days

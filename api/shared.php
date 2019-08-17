@@ -129,7 +129,7 @@ class GarminProcess {
     function reset_schema() {
         // For development database only
         if( $this->sql->table_exists( 'dev' ) ){
-            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'backfills' );
+            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'backfills', 'fitsessions', 'weather' );
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
             }
@@ -151,7 +151,7 @@ class GarminProcess {
     }
     
     function ensure_schema() {
-        $schema_version = 2;
+        $schema_version = 3;
         $schema = array(
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -184,6 +184,18 @@ class GarminProcess {
                 'summaryId' => 'VARCHAR(128)',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
                 'parent_activity_id' => 'BIGINT(20) UNSIGNED'
+            ),
+            "weather" =>  array(
+                'file_id' => 'BIGINT(20) UNSIGNED PRIMARY KEY',
+                'cs_user_id' => 'BIGINT(20) UNSIGNED',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'json' => 'TEXT',
+            ),
+            "fitsession" =>  array(
+                'file_id' => 'BIGINT(20) UNSIGNED PRIMARY KEY',
+                'cs_user_id' => 'BIGINT(20) UNSIGNED',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'json' => 'TEXT',
             ),
             "fitfiles" => array(
                 'file_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -332,9 +344,15 @@ class GarminProcess {
         return $rv;
     }
 
-    // if unique_keys null will use required, but sometimes
-    // you wnat to exclude some keys from required to determine uniqueness
-    // of the rows, for example skip callbackURL
+    /**
+     * Main process function for the API entry point call back from the 
+     * garmin service
+     *
+     * if unique_keys null will use required, but sometimes
+     * you wnat to exclude some keys from required to determine uniqueness
+     * of the rows, for example skip callbackURL
+     *
+     */
     function process($table, $required, $unique_keys = NULL ) {
         $this->ensure_schema();
         
@@ -690,6 +708,72 @@ class GarminProcess {
         // Equal to 'fit'
         return ( $rv[1] == 70 && $rv[2] == 73 && $rv[3] == 84 );
     }
+
+
+    /**
+     *  Extract and save information from downloaded fit files
+     *  if darkSkyNet key exists, try to download weather
+     *
+     */
+    function fit_extract( $file_id, $fit_mesgs ){
+        // First see if we have correct file_id
+        $query = sprintf( 'SELECT file_id,cs_user_id FROM fitfiles WHERE file_id = %d', $file_id );
+        $user = $this->sql->query_first_row( $query );
+        if( isset( $user['cs_user_id'] ) ){
+            $cs_user_id = intval( $user['cs_user_id'] );
+            
+            $this->ensure_schema();
+                
+            // Can we get gps positions?
+            if( isset( $fit_mesgs['session']['start_position_lat'] ) &&
+                isset( $fit_mesgs['session']['start_position_long'] ) &&
+                isset( $fit_mesgs['session']['timestamp'] ) &&
+                isset( $fit_mesgs['session']['start_time'] ) ){
+                $lat = $fit_mesgs['session']['start_position_lat'] ;
+                $lon = $fit_mesgs['session']['start_position_long'] ;
+                $ts =  $fit_mesgs['session']['timestamp'];
+                $st =  $fit_mesgs['session']['start_time'];
+                printf( 'gps '.PHP_EOL );
+                if( $lat != 0.0 && $lon != 0.0 && isset( $this->api_config['darkSkyKey'] ) ){
+
+                    $api_config = $this->api_config['darkSkyKey'];
+                    $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si', $api_config, $lat, $lon, $st);
+
+                    $ch = curl_init();
+
+                    curl_setopt($ch, CURLOPT_URL, $url );
+                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1 );
+
+                    if( $this->verbose ){
+                        printf( "CURL: %s".PHP_EOL, $url );
+                    }
+                    $data = curl_exec($ch);
+                    if( $data === false ) {
+                        $this->status->error( sprintf( 'CURL Failed %s', curl_error($ch ) ) );
+                    }else{
+                        $weather = json_decode( $data, true );
+                        $keep_hourly = array();
+                        foreach( $weather['hourly']['data'] as $one ){
+                            $cur = $one['time'];
+                            $inside = ($cur > ($st-3600.0)) && ($cur < ($ts+3600.0) );
+                            if( $inside ){
+                                array_push( $keep_hourly, $one );
+                            }
+                        }
+                        $weather['hourly']['data'] = $keep_hourly;
+
+                        $this->sql->insert_or_update( 'weather', array( 'cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather) ), array( 'file_id' ) );
+                    }
+                    curl_close($ch);
+                }
+            }
+            if( isset( $fit_mesgs['session'] ) ){
+                $fitdata = json_encode($fit_mesgs['session'] );
+                $this->sql->insert_or_update( 'fitsession', array( 'cs_user_id'=>$cs_user_id, 'file_id'=> $file_id,'json'=>$fitdata ), array( 'file_id' ) );
+            }
+        }
+    }
+
 
 
     /**

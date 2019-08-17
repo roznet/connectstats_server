@@ -1113,14 +1113,14 @@ class phpFITFileAnalysis
                 throw new \Exception('phpFITFileAnalysis->__construct(): file_path is empty!');
             }
             if (!file_exists($file_path_or_data)) {
-                throw new \Exception('phpFITFileAnalysis->__construct(): file \''.$file_path.'\' does not exist!');
+                throw new \Exception('phpFITFileAnalysis->__construct(): file \''.$file_path_or_data.'\' does not exist!');
             }
             /**
              * D00001275 Flexible & Interoperable Data Transfer (FIT) Protocol Rev 1.7.pdf
              * 3.3 FIT File Structure
              * Header . Data Records . CRC
              */
-            $this->file_contents = file_get_contents($file_path);  // Read the entire file into a string
+            $this->file_contents = file_get_contents($file_path_or_data);  // Read the entire file into a string
 
         }
 
