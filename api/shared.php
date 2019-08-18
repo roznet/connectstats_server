@@ -1262,6 +1262,17 @@ class GarminProcess {
     function maintenance_export_table( $table, $key, $key_start ){
         $done = false;
         if( is_writable( 'tmp' ) ){
+            // Make sure there is anything to do
+            $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM %s', $key, $table );
+            $max = $this->sql->query_first_row( $query );
+            if( isset( $max['maxkey'] ) ){
+                if( intval( $max['maxkey'] ) <= intval($key_start) ){
+                    print( '-- nothing new'.PHP_EOL );
+                    return true;
+                }
+            }
+
+            
             $db = $this->api_config['database'];
             $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
             $logfile = sprintf( 'tmp/%s_%s.log', $table, $key_start );
@@ -1273,7 +1284,16 @@ class GarminProcess {
                 // Special case
                 $limit = ' LIMIT 250';
             }
-            $command = sprintf( 'mysqldump --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s>%s%s"', $defaults, $outfile, $this->api_config['db_username'], $db, $table, $key, $key_start, $limit );
+
+            $mysqldump = '/usr/bin/mysqldump';
+            if( ! is_executable( $mysqldump ) ){
+                $mysqldump = '/usr/local/mysql/bin/mysqldump';
+            }
+            if( ! is_executable( $mysqldump ) ){
+                header('HTTP/1.1 500 Internal Server Error');
+                die;
+            }
+            $command = sprintf( '%s --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s>%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $key, $key_start, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
