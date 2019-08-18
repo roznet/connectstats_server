@@ -1296,20 +1296,31 @@ class GarminProcess {
         return $done;
     }
 
+    function maintenance_tmp_path(){
+        if( isset( $this->api_config['tmp'] ) && is_writable( $this->api_config['tmp'] ) ){
+            return $this->api_config['tmp'];
+        }else{
+            return 'tmp';
+        }
+    }
+    
     function maintenance_backup_table( $table, $key ){
         // optional setting
-        if( isset( $this->api_config['url_backup_source'] ) && is_writable( 'tmp' ) ){
+
+        $tmp_path = $this->maintenance_tmp_path();
+        
+        if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) ){
             $last = $this->sql->query_first_row( sprintf( 'SELECT MAX(%s) FROM %s', $key, $table ) );
             $last_key = intval($last[ sprintf( 'MAX(%s)', $key ) ]);
             $database = $this->api_config['database'];
             $url_src = $this->api_config['url_backup_source'];
             $url = sprintf( '%s/api/garmin/backup?database=%s&table=%s&%s=%s', $url_src, $database, $table, $key, $last_key  );
             print( $url . PHP_EOL );
-            $sql_out = sprintf( 'tmp/backup_%s_%s.sql', $table, $last_key );
+            $sql_out = sprintf( '%s/backup_%s_%s.sql', $tmp_path, $table, $last_key );
             
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
-            $defaults = sprintf( 'tmp/.%s.cnf', $database );
+            $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
             file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $command = sprintf( 'mysql --defaults-file=%s -u %s %s < %s', $defaults, $this->api_config['db_username'], $database, $sql_out );
