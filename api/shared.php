@@ -1343,6 +1343,8 @@ class GarminProcess {
             $sql_out = sprintf( '%s/backup_%s_%s.sql', $backup_path, $table, $last_key );
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
+            $outsize = filesize( $sql_out );
+            if( $outsize > 20 ){
             $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
             file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
@@ -1350,8 +1352,6 @@ class GarminProcess {
             printf( 'EXEC: %s'.PHP_EOL,  $command );
             system(  $command );
 
-            $outsize = filesize( $sql_out );
-            if( $outsize > 20 ){
                 printf( 'OUT:  Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
                 $newdata = true;
             }else{
