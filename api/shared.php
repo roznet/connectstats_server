@@ -1330,6 +1330,8 @@ class GarminProcess {
 	    $tmp_path = $this->maintenance_writable_path('tmp');
         $backup_path = $this->maintenance_writable_path('backup_path');
 
+        $newdata = false;
+        
         if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) && is_writable( $backup_path )){
             $last = $this->sql->query_first_row( sprintf( 'SELECT MAX(%s) FROM %s', $key, $table ) );
             $last_key = intval($last[ sprintf( 'MAX(%s)', $key ) ]);
@@ -1347,7 +1349,17 @@ class GarminProcess {
             $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
             printf( 'EXEC: %s'.PHP_EOL,  $command );
             system(  $command );
+
+            $outsize = filesize( $sqlout );
+            print( 'Got %d bytes'.PHP_EOL, $outsize );
+            if( $newdata > 20 ){
+                printf( 'Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
+                $newdata = true;
+            }else{
+                printf( "Nothing New for %s".PHP_EOL, $table );
+            }
         }
+        return $newdata;
     }
 
     function query_file( $cs_user_id, $activity_id, $file_id ){
