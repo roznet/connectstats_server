@@ -1350,13 +1350,12 @@ class GarminProcess {
             printf( 'EXEC: %s'.PHP_EOL,  $command );
             system(  $command );
 
-            $outsize = filesize( $sqlout );
-            printf( 'Got %d bytes'.PHP_EOL, $outsize );
-            if( $newdata > 20 ){
-                printf( 'Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
+            $outsize = filesize( $sql_out );
+            if( $outsize > 20 ){
+                printf( 'OUT:  Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
                 $newdata = true;
             }else{
-                printf( "Nothing New for %s".PHP_EOL, $table );
+                printf( "OUT:  Nothing New for %s".PHP_EOL, $table );
             }
         }
         return $newdata;
