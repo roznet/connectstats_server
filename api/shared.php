@@ -1345,14 +1345,13 @@ class GarminProcess {
 
             $outsize = filesize( $sql_out );
             if( $outsize > 20 ){
-            $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
-            file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
-            chmod( $defaults, 0600 );
-            $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
-            printf( 'EXEC: %s'.PHP_EOL,  $command );
-            system(  $command );
-
                 printf( 'OUT:  Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
+                $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
+                file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
+                chmod( $defaults, 0600 );
+                $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
+                printf( 'EXEC: %s'.PHP_EOL,  $command );
+                system(  $command );
                 $newdata = true;
             }else{
                 printf( "OUT:  Nothing New for %s".PHP_EOL, $table );
