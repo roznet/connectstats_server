@@ -1296,35 +1296,36 @@ class GarminProcess {
         return $done;
     }
 
-    function maintenance_tmp_path(){
-        if( isset( $this->api_config['tmp'] ) && is_writable( $this->api_config['tmp'] ) ){
-            return $this->api_config['tmp'];
+    function maintenance_writable_path($def = 'tmp'){
+        if( isset( $this->api_config[$def] ) && is_writable( $this->api_config[$def] ) ){
+            return $this->api_config[$def];
         }else{
             return 'tmp';
         }
     }
-    
+
     function maintenance_backup_table( $table, $key ){
         // optional setting
 
-	    $tmp_path = $this->maintenance_tmp_path();
+	    $tmp_path = $this->maintenance_writable_path('tmp');
+        $backup_path = $this->maintenance_writable_path('backup_path');
 
-        if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) ){
+        if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) && is_writable( $backup_path )){
             $last = $this->sql->query_first_row( sprintf( 'SELECT MAX(%s) FROM %s', $key, $table ) );
             $last_key = intval($last[ sprintf( 'MAX(%s)', $key ) ]);
             $database = $this->api_config['database'];
             $url_src = $this->api_config['url_backup_source'];
             $url = sprintf( '%s/api/garmin/backup?database=%s&table=%s&%s=%s', $url_src, $database, $table, $key, $last_key  );
-            print( $url . PHP_EOL );
-            $sql_out = sprintf( '%s/backup_%s_%s.sql', $tmp_path, $table, $last_key );
+            printf( 'CURL: %s'.PHP_EOL,  $url );
             
+            $sql_out = sprintf( '%s/backup_%s_%s.sql', $backup_path, $table, $last_key );
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
             $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
             file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
-            print( $command . PHP_EOL );
+            printf( 'EXEC: %s'.PHP_EOL,  $command );
             system(  $command );
         }
     }
