@@ -8,7 +8,9 @@ $keys = array( 'activities' => 'activity_id',
                'assets' => 'asset_id',
                'fitfiles' => 'file_id',
                'tokens' => 'token_id',
-               'users' => 'cs_user_id'
+	       'users' => 'cs_user_id',
+	       'weather' => 'file_id',
+	       'fitsession' => 'file_id'
 );
 
 $process = new GarminProcess();
