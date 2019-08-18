@@ -1351,7 +1351,7 @@ class GarminProcess {
             system(  $command );
 
             $outsize = filesize( $sqlout );
-            print( 'Got %d bytes'.PHP_EOL, $outsize );
+            printf( 'Got %d bytes'.PHP_EOL, $outsize );
             if( $newdata > 20 ){
                 printf( 'Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
                 $newdata = true;
