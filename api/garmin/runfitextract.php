@@ -11,13 +11,18 @@ $process->set_verbose(true);
 $debug = false;
 
 if( isset( $argv[1] ) ){
-    $file_id = $process->validate_input_id($argv[1]);
+    array_shift( $argv ); // get rid of 0
+    $cbids = $argv ;
     
-    $data = $process->query_file( NULL, NULL, $file_id );
+    foreach( $cbids as $arg_file_id ){
+        $file_id = $process->validate_input_id($arg_file_id);
+    
+        $data = $process->query_file( NULL, NULL, $file_id );
 
-    if( strlen( $data ) ){
-        $fit = new adriangibbons\phpFITFileAnalysis( $data, array( 'input_is_data' => true ) );
-        $process->fit_extract( $file_id, $fit->data_mesgs );
+        if( strlen( $data ) ){
+            $fit = new adriangibbons\phpFITFileAnalysis( $data, array( 'input_is_data' => true ) );
+            $process->fit_extract( $file_id, $fit->data_mesgs );
+        }
     }
 }
 ?>

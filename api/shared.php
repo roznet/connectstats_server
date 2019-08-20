@@ -784,6 +784,12 @@ class GarminProcess {
         foreach( $cbids as $cbid ){
             $this->file_callback_one( $table, $cbid );
         }
+
+        $command = sprintf( 'php runfitextract.php %s', implode(' ', $cbids ) );
+        if( $this->verbose ){
+            printf( 'EXEC: %s'.PHP_EOL, $command );
+        }
+        system( $command );
     }
     
     function file_callback_one( $table, $cbid ){
