@@ -737,7 +737,7 @@ class GarminProcess {
                 if( $lat != 0.0 && $lon != 0.0 && isset( $this->api_config['darkSkyKey'] ) ){
 
                     $api_config = $this->api_config['darkSkyKey'];
-                    $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si', $api_config, $lat, $lon, $st);
+                    $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
 
                     $ch = curl_init();
 
