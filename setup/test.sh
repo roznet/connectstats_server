@@ -36,4 +36,4 @@ reset_db
 build_local_from_scratch
 # check we can recover the list
 
-#signed_curl 1 "${base_url}/api/connectstats/search?token_id=1"
+signed_curl 1 "${base_url}/api/connectstats/search?token_id=1"

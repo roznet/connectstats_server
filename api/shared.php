@@ -770,8 +770,6 @@ class GarminProcess {
                     isset( $this->api_config['darkSkyKey'] ) &&
                     abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * $max_days ) {
 
-                    if( abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * 24. ){
-                    
                     $api_config = $this->api_config['darkSkyKey'];
                     $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
 
