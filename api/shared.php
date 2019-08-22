@@ -768,7 +768,7 @@ class GarminProcess {
                 // This is to avoid blast update during backfill
                 if( $lat != 0.0 && $lon != 0.0 &&
                     isset( $this->api_config['darkSkyKey'] ) &&
-                    abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * $max_days ) {
+                    abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * $max_hours ) {
 
                     $api_config = $this->api_config['darkSkyKey'];
                     $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
