@@ -1,6 +1,7 @@
-# connectstats_server
+# Web Service to ConnectStats and Garmin Health API
 
-Implementation of a server for [ConnectStats](https://github.com/roznet/connectstats).
+
+This is an implementation of a server for [ConnectStats](https://github.com/roznet/connectstats) using [php](https://www.php.net) and [mysql](https://www.mysql.com)
 
 This is intended to both provide and API to be registered from [Garmin Health API](https://developer.garmin.com/health-api/overview/) and a server that can query the resulting saved data.
 
@@ -22,6 +23,8 @@ chmod ugo+wc api/garmin/tmp
 
 If you want to also include weather data, you can obtain a key from [darkSkyNet](https://darksky.net/dev) and add it to the config file.
 
+You can clone this repository under multiple subdirectory with different configuration, for example, if your webserver base url is {baseurl}, you can have a directory `dev` and `prod` with different databases and keys
+
 ### Getting the database ready
 
 You'll need to setup a mysql database and enter the database name, host, user and password in the `config.php` file. When the api is called it will automatically setup the tables it needs.
@@ -29,7 +32,6 @@ You'll need to setup a mysql database and enter the database name, host, user an
 ## Using the api with Garmin Health
 
 Assuming a `{baseurl}` for your server, it will provide implementation for the following end point from the [Garmin Health API](https://developer.garmin.com/health-api/overview/):
-
 
 | End Point                  | URL                                           | 
 |----------------------------|-----------------------------------------------|
