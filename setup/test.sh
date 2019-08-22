@@ -10,6 +10,7 @@ function reset_db {
 
 function build_local_from_scratch {
 	${CURL} "${base_url}/api/connectstats/user_register?userAccessToken=testtoken&userAccessTokenSecret=testsecret"
+	${CURL} "${base_url}/api/connectstats/user_register?userAccessToken=testtoken2&userAccessTokenSecret=testsecret2"
 	# upload some fit files from the simulator
 	${CURL} -H "Content-Type: application/json;charset=utf-8" -d @sample-file-local.json "${base_url}/api/garmin/file"
 	# upload activities
@@ -31,6 +32,9 @@ build_local_from_scratch
 
 # check we can recover the list
 
+# Should be unauthorized
+./query.py -t=2  -v "${base_url}/api/connectstats/search?token_id=1"
+# Check get back the list and fit file
 ./query.py -t=1 -o=t.json -v "${base_url}/api/connectstats/search?token_id=1"
 ./query.py -t=1 -o=t.fit -v "${base_url}/api/connectstats/file?token_id=1&activity_id=6"
 
