@@ -1,4 +1,30 @@
 <?php
+/*
+ *  MIT Licence
+ *
+ *  Copyright (c) 2019 Brice Rosenzweig.
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy
+ *  of this software and associated documentation files (the "Software"), to deal
+ *  in the Software without restriction, including without limitation the rights
+ *  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *  copies of the Software, and to permit persons to whom the Software is
+ *  furnished to do so, subject to the following conditions:
+ *  
+ *  The above copyright notice and this permission notice shall be included in all
+ *  copies or substantial portions of the Software.
+ *  
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ *  SOFTWARE.
+ *  
+ *
+ */
+
 
 error_reporting(E_ALL);
 
@@ -27,7 +53,6 @@ error_reporting(E_ALL);
  *  Query from file for userid, assetId
  */
 
-# include_once( $_SERVER['DOCUMENT_ROOT'].'/php/sql_helper.php' )
 include_once( 'sql_helper.php');
 
 class garmin_sql extends sql_helper{
@@ -119,6 +144,8 @@ class GarminProcess {
         $this->api_config = $api_config;
     }
 
+
+    
     function set_verbose($verbose){
         $this->verbose = $verbose;
         $this->sql->verbose = $verbose;
@@ -149,7 +176,9 @@ class GarminProcess {
         }
         return true;
     }
-    
+
+    /**
+     */
     function ensure_schema() {
         $schema_version = 3;
         $schema = array(
@@ -480,10 +509,10 @@ class GarminProcess {
         }
     }
     
-    function Authorization_header_for_token_id( $full_url, $token_id ){
+    function authorization_header_for_token_id( $full_url, $token_id ){
 
         $row = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
-        return $this->Authorization_header( $full_url, $row['userAccessToken'], $row['userAccessTokenSecret'] );
+        return $this->authorization_header( $full_url, $row['userAccessToken'], $row['userAccessTokenSecret'] );
         
     }
 
@@ -513,7 +542,7 @@ class GarminProcess {
 
             $maps = $this->interpret_authorization_header( $header );
             if( isset( $maps['oauth_token'] ) && isset( $maps['oauth_nonce'] ) && isset( $maps['oauth_signature'] ) ){
-                $reconstructed = $this->Authorization_header( $full_url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
+                $reconstructed = $this->authorization_header( $full_url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
                 $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
                 $reconmaps = $this->interpret_authorization_header( $reconstructed );
                 // Check if token id is consistent with the token id of the access token
@@ -550,7 +579,7 @@ class GarminProcess {
                 $userAccessToken = $maps['oauth_token'];
                 $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'" );
                 if( isset( $row['token_id'] ) ){
-                    $reconstructed = $this->Authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
+                    $reconstructed = $this->authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
                     $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
                     $reconmaps = $this->interpret_authorization_header( $reconstructed );
                     // Check if token id is consistent with the token id of the access token
@@ -709,13 +738,14 @@ class GarminProcess {
         return ( $rv[1] == 70 && $rv[2] == 73 && $rv[3] == 84 );
     }
 
-
     /**
      *  Extract and save information from downloaded fit files
      *  if darkSkyNet key exists, try to download weather
+     *  Note that if the updated activity is older than $max_hours, 
+     *  the weather won't be uploaded
      *
      */
-    function fit_extract( $file_id, $fit_mesgs ){
+    function fit_extract( $file_id, $fit_mesgs, $max_hours = 24.0 ){
         // First see if we have correct file_id
         $query = sprintf( 'SELECT file_id,cs_user_id FROM fitfiles WHERE file_id = %d', $file_id );
         $user = $this->sql->query_first_row( $query );
@@ -733,9 +763,15 @@ class GarminProcess {
                 $lon = $fit_mesgs['session']['start_position_long'] ;
                 $ts =  $fit_mesgs['session']['timestamp'];
                 $st =  $fit_mesgs['session']['start_time'];
-                printf( 'gps '.PHP_EOL );
-                if( $lat != 0.0 && $lon != 0.0 && isset( $this->api_config['darkSkyKey'] ) ){
 
+                // We will only query weather for activities that were done less than 24h ago
+                // This is to avoid blast update during backfill
+                if( $lat != 0.0 && $lon != 0.0 &&
+                    isset( $this->api_config['darkSkyKey'] ) &&
+                    abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * $max_days ) {
+
+                    if( abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * 24. ){
+                    
                     $api_config = $this->api_config['darkSkyKey'];
                     $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
 
@@ -778,6 +814,8 @@ class GarminProcess {
 
     /**
      *    This function is called in the background
+     *    It will query the Garmin API for each file that needs to be downloaded
+     *    and if necessary will extract information from the fit file
      */
     function run_file_callback( string $table, array $cbids ){
         $this->ensure_schema();
@@ -1419,7 +1457,7 @@ class GarminProcess {
         print( json_encode( $rv ) );
     }
 
-    // Replicate format of back fill
+
     function query_backfill( $cs_user_id, $from_activity_id, $start, $limit ){
         if( $from_activity_id == 0 ){
             $query = "SELECT activity_id,json,userId,userAccessToken FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
@@ -1456,7 +1494,6 @@ class GarminProcess {
             }
         }
         return $json;
-            
     }
 };
     

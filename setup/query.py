@@ -93,7 +93,7 @@ class ConnectStatsRequest:
     def query_url(self, accessUrl ):
         headers = self.authentification_header( accessUrl )
         pm = urllib3.PoolManager()
-        
+
         response = pm.request('GET', accessUrl, headers=headers )
 
         if response.status == 200:
