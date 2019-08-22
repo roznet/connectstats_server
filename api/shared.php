@@ -300,7 +300,7 @@ class GarminProcess {
                 foreach( $infos as $info){
                     if( isset( $info['userAccessToken'] ) ){
                         $user = $this->user_info( $info['userAccessToken'] );
-                        $token = $info['userAccessToken'];
+                        $token = $this->validate_token( $info['userAccessToken'] );
                         $query = "UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = '$token'";
                         if( ! $this->sql->execute_query( $query ) ){
                             $this->status->error( sprintf( 'Sql failed %s (%s)', $query, $this->sql->lasterror ) );
