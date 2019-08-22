@@ -23,17 +23,15 @@ function test_user_deregister {
 	${CURL} -H "Content-Type: application/json;charset=utf-8" -d @setup/sample-deregister.json "${base_url}/api/garmin/deregistration"
 }
 
-
-function signed_curl {
-	auth=`(cd ../api/garmin;php sign.php $1 "$2")`
-	${CURL} -H "Authorization: $auth" "$2"
-}
-
 CURL="curl "
 base_url='http://localhost/dev'
 
 reset_db
 build_local_from_scratch
+
 # check we can recover the list
 
-signed_curl 1 "${base_url}/api/connectstats/search?token_id=1"
+./query.py -t=1 -o=t.json -v "${base_url}/api/connectstats/search?token_id=1"
+./query.py -t=1 -o=t.fit -v "${base_url}/api/connectstats/file?token_id=1&activity_id=6"
+
+ls -lrt t.fit t.json
