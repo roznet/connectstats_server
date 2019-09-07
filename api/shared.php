@@ -129,6 +129,110 @@ class StatusCollector {
     }
 }
 
+/**
+ *   This is the main functionality for paging activities and files in queries
+ *   It constructs the proper where and paging construct for a select query
+ *   The parameters are extracted from the GET params.
+ * 
+ *   Several style of paging are supported:
+ *   - start & limit: the first activitity will be at `start` offset from the latest activities 
+ *   and a maximum of `limit` activities are returned
+ *
+ *   - activity_id: will only return data for that activity id, limit will be irrelevant
+ *   
+ *   - from_activity_id: will return only activities with a higher activity_id than `from_activity_id`
+ */
+class Paging {
+
+    function __construct( $getparams, $token_id, $sql ){
+        $this->sql = $sql;
+
+        if( isset( $getparams['start'] ) ){
+            $this->start = intval( $getparams['start']);
+        }
+
+        if( isset( $getparams['from_activity_id' ] ) ){
+            $this->from_activity_id = intval( $getparams['from_activity_id'] );
+        }
+
+        if( isset( $getparams['to_activity_id' ] ) ){
+            $this->to_activity_id = intval( $getparams['to_activity_id'] );
+            if( isset( $this->from_activity_id ) ){
+                $this->limit = ($this->to_activity_id - $this->from_activity_id);
+            }
+        }
+
+        if( isset( $getparams['activity_id'] ) ){
+            $this->activity_id = intval( $getparams['activity_id'] );
+        }
+
+        if( isset( $getparams['file_id'] ) ){
+            $this->file_id = intval( $getparams['file_id'] );
+        }
+        
+        if( isset( $getparams['limit'] ) ){
+            $this->limit = intval($getparams['limit']);
+        }else{
+            $this->limit = 1;
+        }
+
+        $token = $this->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
+        if( isset( $token['cs_user_id' ] ) ){
+            $this->cs_user_id = intval($token['cs_user_id']);
+        }else{
+            $this->cs_user_id = 0; // invalid user
+        }
+    }
+
+    function activities_where(){
+        if( isset( $this->activity_id ) ){
+            return sprintf( 'activities.cs_user_id = %d AND activities.activity_id = %d', $this->cs_user_id, $this->activity_id );
+        }else if( isset( $this->from_activity_id ) ){
+               return sprintf( 'activities.cs_user_id = %d AND activities.activity_id >= %d', $this->cs_user_id, $this->from_activity_id );
+        }else{
+            return sprintf( 'activities.cs_user_id = %d', $this->cs_user_id );
+        }
+    }
+
+    function activities_paging(){
+        if( isset( $this->start ) ){
+            return sprintf( 'LIMIT %d OFFSET %d', $this->limit, $this->start );
+        }else{
+            return sprintf( 'LIMIT %d', $this->limit );
+        }
+    }
+
+    function activities_total_count(){
+        $query = sprintf( 'SELECT COUNT(json) FROM activities WHERE cs_user_id = %d', $this->cs_user_id );
+        $count = $this->sql->query_first_row( $query );
+        if( isset($count['COUNT(json)']) ){
+            return intval( $count['COUNT(json)'] );
+        }else{
+            return 0;
+        }
+    }
+
+
+    function json(){
+        $count = $this->activities_total_count();
+        
+        return array( 'total' => $count, 'start' => $this->start??0, 'limit' => $this->limit );
+    }
+                              
+    function direct_file_query(){
+        return isset( $this->file_id );
+    }
+
+    function file_where(){
+        return sprintf('file_id = %d', $this->file_id );
+    }
+
+    function file_paging() {
+        return sprintf( 'LIMIT %d', $this->limit );
+    }
+
+    
+}
 
 class GarminProcess {
     function __construct() {
@@ -1136,15 +1240,37 @@ class GarminProcess {
 
         // if multi sport sub activity
 
-        if( isset( $json['parentSummaryId'] ) && $table == 'activities' ){
-            $query = sprintf( "SELECT activity_id FROM activities WHERE summaryId = '%s'", $json['parentSummaryId'] );
-            $parentrow = $this->sql->query_first_row( $query );
-            if( isset( $parentrow['activity_id'] ) ){
-                $parent_id = $parentrow['activity_id'];
-                $this->sql->execute_query( sprintf( 'UPDATE activities SET parent_activity_id = %d WHERE summaryId = %d', $parent_id, $row['summaryId'] ) );
+        if( $table == 'activities' ){
+            if( isset( $json['parentSummaryId'] ) ){
+                $query = sprintf( "SELECT activity_id FROM activities WHERE summaryId = '%s'", intval($json['parentSummaryId']) );
+                $parentrow = $this->sql->query_first_row( $query );
+                if( isset( $parentrow['activity_id'] ) ){
+                    $parent_id = $parentrow['activity_id'];
+                    $this->sql->execute_query( sprintf( 'UPDATE activities SET parent_activity_id = %d WHERE summaryId = %d', $parent_id, $row['summaryId'] ) );
+                }
+            }
+
+            if( isset( $json['isParent'] ) && intval($json['isParent']) == 1 ){
+                if( isset( $json['startTimeInSeconds'] ) && isset( $json['startTimeInSeconds'] ) && isset( $row['userAccessToken'] ) ){
+                    $startTime = intval($json['startTimeInSeconds']);
+                    $endTime = $startTime + intval($json['durationInSeconds']);
+                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds > %d AND startTimeInSeconds < %d AND userAccessToken = '%s'",  $startTime, $endTime, $row['userAccessToken'] );
+                    $found = $this->sql->query_array( $query );
+                    foreach( $found as $child_row ){
+                        // only check what does not have already parent_activity_id
+                        if( !isset( $child_row['parent_activity_id'] ) ){
+                            $child_json = json_decode( $child_row['json'], true );
+                            if( isset( $child_json['parentSummaryId'] ) && $child_json['parentSummaryId'] == $json['summaryId'] ){
+                                $query = sprintf( "UPDATE `%s` SET parent_activity_id=%d WHERE activity_id = '%s'",  $table, $row['activity_id'], $child_row['activity_id'] );
+                                if( ! $this->sql->execute_query( $query ) ){
+                                    printf( "ERROR %s",  $this->sql->lasterror );
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-
         //
         // First see if we can update users
         //
@@ -1428,41 +1554,63 @@ class GarminProcess {
         return NULL;
     }
 
-    function query_activities_from_id( $cs_user_id, $from_activity_id, $limit ){
-        $to_activity_id = $from_activity_id + $limit;
-        $query = "SELECT activity_id,parent_activity_id,json FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
-        
-        $json = $this->query_activities_json($query);
-        
-        $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
-        $count = $this->sql->query_first_row( $query );
+    function query_json( $tables, $paging ){
 
-        $rv = array( 'activityList' => $json, 'paging' => array( 'total' => intval( $count['COUNT(json)'] ), 'from_activity_id' => intval($from_activity_id), 'limit' => intval($limit) ));
-        
-        print( json_encode( $rv ) );
-
-    }
-    
-    function query_activities( $cs_user_id, $start, $limit ){
-        $query = "SELECT activity_id,parent_activity_id,json FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
-        $json = $this->query_activities_json($query);
-
-        $query = "SELECT COUNT(json) FROM activities WHERE cs_user_id = $cs_user_id";
-        $count = $this->sql->query_first_row( $query );
-
-        $rv = array( 'activityList' => $json, 'paging' => array( 'total' => intval( $count['COUNT(json)'] ), 'start' => intval($start), 'limit' => intval($limit) ));
-        
-        print( json_encode( $rv ) );
-    }
-
-
-    function query_backfill( $cs_user_id, $from_activity_id, $start, $limit ){
-        if( $from_activity_id == 0 ){
-            $query = "SELECT activity_id,json,userId,userAccessToken FROM activities WHERE cs_user_id = $cs_user_id ORDER BY startTimeInSeconds DESC LIMIT $limit OFFSET $start";
-        }else{
-            $to_activity_id = $from_activity_id + $limit;
-            $query = "SELECT activity_id,json,userId,userAccessToken FROM activities WHERE cs_user_id = $cs_user_id and activity_id >= $from_activity_id and activity_id <= $to_activity_id ORDER BY startTimeInSeconds DESC";
+        if( $paging->direct_file_query() ){
+            $query = sprintf( "SELECT file_id,`json` FROM %%s WHERE %s %s", $paging->file_where(), $paging->file_paging() );
+        } else {
+            $query = sprintf( "SELECT activity_id,jsontable.`json` FROM activities, %%s jsontable WHERE activities.file_id = jsontable.file_id AND activities.activity_id = COALESCE(parent_activity_id,activity_id) AND %s ORDER BY activities.startTimeInSeconds DESC %s", $paging->activities_where(),$paging->activities_paging() );
         }
+        $results = array();
+
+        foreach( $tables as $table ){
+            $results[$table] = array();
+            
+            $table_query = sprintf( $query, $table );
+            $rows = $this->sql->query_as_array( $table_query );
+            foreach( $rows as $result ){
+                $activity_json = json_decode($result['json'], true );
+                if( isset( $result['activity_id'] ) ){
+                    $activity_id = $result['activity_id'];
+                    $activity_json['activity_id'] = $activity_id;
+                }else if( isset( $result['file_id'] ) ){
+                    $file_id = $result['file_id'];
+                    $activity_json['file_id'] = $file_id;
+                }
+                array_push( $results[$table], $activity_json );
+            }
+        }
+        return $results;
+    }
+
+    /**
+     * This function is the main function used by connectstats
+     * To retrieve the summaries of activities in that server for a specific user
+     */
+    function query_activities( $paging ) {
+        $query = sprintf( "SELECT activity_id,parent_activity_id,json FROM activities WHERE %s ORDER BY startTimeInSeconds DESC %s", $paging->activities_where(), $paging->activities_paging() );
+        $json = $this->query_activities_json($query);
+        $count = $paging->activities_total_count();
+
+        $rv = array( 'activityList' => $json, 'paging' => $paging->json() );
+        
+        print( json_encode( $rv ) );
+
+        return $rv;
+    }
+
+
+    /**
+     * This function retrieves the activities received from the garmin service
+     * And reconstruct the format that garmin sends in the push, which can 
+     * be useful for debugging in retriggering a push from old activities
+     *
+     * NOTE that this is sorted by time stamp, to simulate the order they were sent
+     *      by the garmin service
+     */
+    function query_backfill( $paging ){
+
+        $query = sprintf( 'SELECT activity_id,json,userId,userAccessToken FROM activities WHERE %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
         
         $res = $this->sql->query_as_array( $query );
         $rv = array();

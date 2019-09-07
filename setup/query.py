@@ -16,13 +16,14 @@ import argparse
 
 class ConnectStatsRequest:
 
-    def __init__(self):
+    def __init__(self,args):
 
-        self.verbose = False
+        self.verbose = args.verbose
         
-        regexp = re.compile("'([a-zA-Z_]+)' +=> +'([-0-9a-zA-Z_!]+)'," )
+        regexp = re.compile("'([a-zA-Z_]+)' +=> +'([-.0-9a-zA-Z_!]+)'," )
         config = dict()
-        with open( '../api/config.php' ) as cf:
+
+        with open( args.config ) as cf:
             for line in cf:
                 m = regexp.search( line )
                 if m:
@@ -117,16 +118,17 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser( description='Query ConnectStats API', formatter_class=argparse.RawTextHelpFormatter )
     parser.add_argument( 'url' )
+    parser.add_argument( '-c', '--config', help='config.php file to use to extract information', default = '../api/config.php' )
     parser.add_argument( '-t', '--token', help='Token id for the access Token Secret', default = 1 )
     parser.add_argument( '-o', '--outfile', help='file to save output' )
     parser.add_argument( '-v', '--verbose', help='verbose output', action='store_true' )
     args = parser.parse_args()
     
-    req = ConnectStatsRequest()
+    req = ConnectStatsRequest(args)
     req.verbose = args.verbose 
 
     req.setup_token_id( args.token )
-    content = req.query_url( args.url ) 
+    content = req.query_url( args.url )
     if args.outfile:
         with open( args.outfile, 'wb' ) as of:
             of.write( content )

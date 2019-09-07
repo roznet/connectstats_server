@@ -2,9 +2,10 @@
 
 include_once( '../api/shared.php' );
 
-class Test {
+class ServerTest {
     function __construct(){
         $this->process = new GarminProcess();
+        $this->base_url = $base_url;
         include( 'test_config.php' );
         $this->config = $test_config;
     }
@@ -32,6 +33,10 @@ class Test {
         print( $data );
     }
 
+
+    function test_register_user(){
+        
+    }
 
     function run_setup_local(){
         $base_url = 'http://localhost/dev';
@@ -71,6 +76,10 @@ class Test {
         case "setuplocal":
             $this->run_setup_local( $args );
             break;
+
+        case "help":
+        default:
+            print( 'test.php [help|all]'.PHP_EOL ); 
         }
 
     }
@@ -81,9 +90,8 @@ if( isset( $argv[1] ) ){
     $command = $argv[1];
     $args = array_slice( $argv, 2 );
 
-    $test = new Test();
+    $test = new ServerTest();
     $test->run_command( $command, $args );
-
 }
 
 ?>
