@@ -1,87 +1,79 @@
 <?php
 
 include_once( '../api/shared.php' );
+include_once( "../api/phpFITFileAnalysis.php" );
 
 class ServerTest {
     function __construct(){
         $this->process = new GarminProcess();
-        $this->base_url = $base_url;
         include( 'test_config.php' );
         $this->config = $test_config;
     }
 
-    function run_sign(){
+    function assert( $true_or_false, $message ){
+        if( $true_or_false ){
+            printf( 'SUCCESS: %s'.PHP_EOL, $message );
+        }else{
+            printf( 'FAILURE: %s'.PHP_EOL, $message );
+        }
+    }
 
-        $token_id = $this->process->validate_input_id( $this->args[0] );
-        $url = $this->process->validate_url( $this->args[1] );
-
-        $this->process->set_verbose( true );
-
-        print( $this->process->authorization_header_for_token_id( $url, $token_id  ) .PHP_EOL );
+    function validate_activities(){
+        $reloaded = json_decode( file_get_contents( 't.json' ), true );
+        $sent = json_decode( file_get_contents( 'sample-backfill-activities.json' ), true );
         
-    }
-
-    function run_curl(){
-
-        $token_id = $this->process->validate_input_id( $this->args[0] );
-        $url = $this->process->validate_url( $this->args[1] );
-
-        $this->process->set_verbose( true );
-        $user = $this->process->user_info_for_token_id( $token_id );
-
-        $data = $this->process->get_url_data( $url, $user['userAccessToken'], $user['userAccessTokenSecret'] );
-        print( $data );
-    }
-
-
-    function test_register_user(){
+        $this->assert( count( $reloaded['activityList'] ) == count( $sent['activities'] ), sprintf( 'backfill sent %d and recovered %d activities',count( $sent['activities'] ),count( $reloaded['activityList'] ) ) );
         
-    }
-
-    function run_setup_local(){
-        $base_url = 'http://localhost/dev';
-        $commands = array( 
-            sprintf( 'curl  -v "%s/api/connectstats/reset"', $base_url ),
-            sprintf( 'curl  -v "%s/api/connectstats/user_register?userAccessToken=testtoken&userAccessTokenSecret=testsecret"', $base_url ),
-            # upload some fit files from the simulator
-            sprintf( 'curl  -v -H "Content-Type: application/json;charset=utf-8" -d @sample-file-local.json "%s/api/garmin/file"', $base_url ),
-            # upload activities
-            sprintf( 'curl  -v -H "Content-Type: application/json;charset=utf-8" -d @sample-backfill-activities.json "%s/api/garmin/activities"', $base_url ),
-
-        );
-        foreach( $commands as $command ){
-            printf( 'Starting: %s'.PHP_EOL,  $command );
-            exec( "$command ");
+        $this->cache_reloaded = array();
+        $this->cache_cs_id = array();
+        foreach( $reloaded['activityList'] as $one ){
+            $this->cache_reloaded[ $one['summaryId'] ] = $one;
+            $this->cache_cs_id[ $one['cs_activity_id'] ] = $one;
         }
 
-        # simulate backfill callback
-        $rv = $this->process->get_url_data( sprintf( '%s/api/garmin/backfill?token_id=1&start_year=2019"', $base_url ), "testtoken", "testsecret" );
-        print_r( $rv );
+        $this->cache_sent = array();
+        foreach( $sent['activities'] as $one ){
+            $summaryId = $one['summaryId'];
+            if( isset( $this->cache_sent[ $summaryId ] ) ){
+                printf( 'Duplicate %s'.PHP_EOL, $summaryId );
+            }
 
+            $this->cache_sent[ $summaryId ] = $one;
+            if( ! isset( $this->cache_reloaded[ $summaryId ] ) ){
+                printf( 'Missing %s'.PHP_EOL, $summaryId );
+            }
+        }
+        foreach( $this->cache_cs_id as $one ){
+            if( isset( $one['cs_parent_activity_id' ] )){
+                $this->assert( isset( $this->cache_cs_id[ $one['cs_parent_activity_id'] ] ), sprintf( 'parent %s of %s exists', $one['cs_parent_activity_id'], $one['cs_activity_id'] ) );
+            }
 
-    }
-    
-    function run_command($command, $args){
-        $this->args = $args;
-        $this->command = $command;
-        
-        switch( $command ){
-        case "curl":
-            $this->run_curl(  );
-            break;
-        case "sign":
-            $this->run_sign(  );
-            break;
-            
-        case "setuplocal":
-            $this->run_setup_local( $args );
-            break;
-
-        case "help":
-        default:
-            print( 'test.php [help|all]'.PHP_EOL ); 
+            if( isset( $one['isParent'] ) ){
+                $found = 0;
+                foreach( $this->cache_cs_id as $sub ){
+                    if( isset( $sub['cs_parent_activity_id'] ) && $sub['cs_parent_activity_id'] == $one['cs_activity_id'] ){
+                        $found += 1;
+                    }
+                }
+                $this->assert( $found > 0, sprintf( 'activity %s found %d children which is more than 0', $one['cs_activity_id'],  $found ) );
+            }
         }
 
+    }
+
+    function validate_fit_file(){
+        $fit = new adriangibbons\phpFITFileAnalysis( 't.fit' );
+        $start_time = $fit->data_mesgs['session']['start_time'];
+
+        $json = json_decode( file_get_contents( 'f.json' ), true );
+        $this->assert( count( $json['fitsession'] ) > 0, sprintf( 'got %d fit sessions which is more than 0', count( $json['fitsession'] ) ) );
+        $extract = $json['fitsession'][0];
+        
+        $fit_activity_id = intval( $extract['activity_id'] );
+
+        $summary = $this->cache_cs_id[$fit_activity_id];
+
+        $this->assert( $summary['startTimeInSeconds'] == $start_time, sprintf( 'start time recorded %s matches fit file %s', $summary['startTimeInSeconds'], $start_time ) );
     }
 }
 
@@ -91,7 +83,8 @@ if( isset( $argv[1] ) ){
     $args = array_slice( $argv, 2 );
 
     $test = new ServerTest();
-    $test->run_command( $command, $args );
+    $test->validate_activities();
+    $test->validate_fit_file();
 }
 
 ?>

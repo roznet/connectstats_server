@@ -260,7 +260,7 @@ class GarminProcess {
     function reset_schema() {
         // For development database only
         if( $this->sql->table_exists( 'dev' ) ){
-            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'backfills', 'fitsessions', 'weather' );
+            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'backfills', 'fitsession', 'weather' );
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
             }
@@ -1237,7 +1237,6 @@ class GarminProcess {
         $to_set = array();
         $other_to_set = array();
 
-
         // if multi sport sub activity
 
         if( $table == 'activities' ){
@@ -1254,16 +1253,21 @@ class GarminProcess {
                 if( isset( $json['startTimeInSeconds'] ) && isset( $json['startTimeInSeconds'] ) && isset( $row['userAccessToken'] ) ){
                     $startTime = intval($json['startTimeInSeconds']);
                     $endTime = $startTime + intval($json['durationInSeconds']);
-                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds > %d AND startTimeInSeconds < %d AND userAccessToken = '%s'",  $startTime, $endTime, $row['userAccessToken'] );
-                    $found = $this->sql->query_array( $query );
-                    foreach( $found as $child_row ){
-                        // only check what does not have already parent_activity_id
-                        if( !isset( $child_row['parent_activity_id'] ) ){
-                            $child_json = json_decode( $child_row['json'], true );
-                            if( isset( $child_json['parentSummaryId'] ) && $child_json['parentSummaryId'] == $json['summaryId'] ){
-                                $query = sprintf( "UPDATE `%s` SET parent_activity_id=%d WHERE activity_id = '%s'",  $table, $row['activity_id'], $child_row['activity_id'] );
-                                if( ! $this->sql->execute_query( $query ) ){
-                                    printf( "ERROR %s",  $this->sql->lasterror );
+                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userAccessToken = '%s'",  $startTime, $endTime, $row['userAccessToken'] );
+                    $found = $this->sql->query_as_array( $query );
+
+                    $parent_row = $this->sql->query_first_row( sprintf( 'SELECT activity_id FROM `%s` WHERE summaryId = %s', $table, $row['summaryId'] ) );
+                    if( isset( $parent_row['activity_id'] ) ){
+                        foreach( $found as $child_row ){
+                            // only check what does not have already parent_activity_id
+                            if( !isset( $child_row['parent_activity_id'] ) ){
+                                $child_json = json_decode( $child_row['json'], true );
+
+                                if( isset( $child_json['parentSummaryId'] ) && $child_json['parentSummaryId'] == $json['summaryId'] ){
+                                    $query = sprintf( "UPDATE `%s` SET parent_activity_id=%d WHERE activity_id = '%s'",  $table, $parent_row['activity_id'], $child_row['activity_id'] );
+                                    if( ! $this->sql->execute_query( $query ) ){
+                                        printf( "ERROR %s",  $this->sql->lasterror );
+                                    }
                                 }
                             }
                         }
