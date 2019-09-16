@@ -169,11 +169,16 @@ class Paging {
         if( isset( $getparams['file_id'] ) ){
             $this->file_id = intval( $getparams['file_id'] );
         }
-        
+
         if( isset( $getparams['limit'] ) ){
             $this->limit = intval($getparams['limit']);
         }else{
-            $this->limit = 1;
+            if( isset( $getparams['summaryStartTimeInSeconds'] ) && isset( $getparams['summaryEndTimeInSeconds'] ) ){
+                $this->summary_start_time_in_seconds = intval($getparams['summaryStartTimeInSeconds']); 
+                $this->summary_end_time_in_seconds = intval($getparams['summaryEndTimeInSeconds']); 
+            }else{
+                $this->limit = 1;
+            }
         }
 
         $token = $this->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
@@ -189,6 +194,12 @@ class Paging {
             return sprintf( 'activities.cs_user_id = %d AND activities.activity_id = %d', $this->cs_user_id, $this->activity_id );
         }else if( isset( $this->from_activity_id ) ){
                return sprintf( 'activities.cs_user_id = %d AND activities.activity_id >= %d', $this->cs_user_id, $this->from_activity_id );
+        }else if( isset( $this->summary_start_time_in_seconds ) && isset( $this->summary_end_time_in_seconds ) ){
+            return sprintf( 'activities.cs_user_id = %d AND activities.startTimeInSeconds >= %d AND activities.startTimeInSeconds < %d',
+                            $this->cs_user_id,
+                            $this->summary_start_time_in_seconds,
+                            $this->summary_end_time_in_seconds
+            );
         }else{
             return sprintf( 'activities.cs_user_id = %d', $this->cs_user_id );
         }
@@ -197,8 +208,10 @@ class Paging {
     function activities_paging(){
         if( isset( $this->start ) ){
             return sprintf( 'LIMIT %d OFFSET %d', $this->limit, $this->start );
-        }else{
+        }else if( isset( $this->limit ) ){
             return sprintf( 'LIMIT %d', $this->limit );
+        }else{
+            return '';
         }
     }
 
@@ -215,8 +228,13 @@ class Paging {
 
     function json(){
         $count = $this->activities_total_count();
-        
-        return array( 'total' => $count, 'start' => $this->start??0, 'limit' => $this->limit );
+        if( isset( $this->limit ) ){
+            return array( 'total' => $count, 'start' => $this->start??0, 'limit' => $this->limit );
+        }elseif( isset( $this->summary_end_time_in_seconds ) && isset( $this->summary_start_time_in_seconds ) ){
+            return array( 'total' => $count, 'summaryStartTimeInSeconds' => $this->summary_start_time_in_seconds, 'summaryEndTimeInSeconds' => $this->summary_end_time_in_seconds );
+        }else{
+            return array( 'total' => $count );
+        }
     }
                               
     function direct_file_query(){
@@ -1612,7 +1630,7 @@ class GarminProcess {
      * NOTE that this is sorted by time stamp, to simulate the order they were sent
      *      by the garmin service
      */
-    function query_backfill( $paging ){
+    function query_backfill_activities( $paging ){
 
         $query = sprintf( 'SELECT activity_id,json,userId,userAccessToken FROM activities WHERE %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
         
@@ -1628,7 +1646,44 @@ class GarminProcess {
         }
         print( json_encode( array( 'activities' => $rv ) ) );
     }
-    
+
+    function query_backfill_file( $paging ){
+
+        $query = sprintf( 'SELECT activity_id,file_id,userId,userAccessToken,startTimeInSeconds FROM activities WHERE NOT ISNULL(file_id) AND %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
+        
+        $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
+
+        $url_info = parse_url( $full_url );
+        $url_params = array();
+        
+        parse_str( $url_info['query'], $url_params );
+
+        $file_url = sprintf( '%s://%s/%s?token_id=%d',
+                             $url_info['scheme'],
+                             $url_info['host'],
+                             str_replace( 'api/connecstats/search', 'api/connectstats/file', $url_info['path'] ),
+                             $url_params['token_id']
+        );
+        
+        $res = $this->sql->query_as_array( $query );
+        $rv = array();
+        foreach( $res as $one ){
+            if( isset($one['file_id']) ){
+                $activity_file = array(
+                    'userId' => $one['userId'],
+                    'userAccessToken' => $one['userAccessToken'],
+                    'summaryId' => $one['file_id'],
+                    'fileType' => 'FIT',
+                    'startTimeInSeconds' => intval($one['startTimeInSeconds']),
+                    'callbackURL' => sprintf( '%s&file_id=%d', $file_url, $one['file_id'] )
+                );
+
+                array_push($rv, $activity_file);
+            }
+        }
+        print( json_encode( array( 'file' => $rv ) ) );
+    }
+
     function query_activities_json( $query ){
         $res = $this->sql->query_as_array( $query );
         $json = array();

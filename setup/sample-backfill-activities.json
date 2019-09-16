@@ -66,7 +66,7 @@
       "userId" : "testuser",
       "userAccessToken" : "testtoken"
     },
-        {
+    {
       "summaryId" : "4018666911",
       "isParent" : true,
       "durationInSeconds" : 3636,

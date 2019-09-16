@@ -57,7 +57,7 @@ if( isset( $_GET['token_id'] ) ){
         $file_id = NULL;
     }
 
-    $token = $process->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
+    $token = $process->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
 
     $data = $process->query_file( $token['cs_user_id'], $activity_id, $file_id );
     if( $data ){
