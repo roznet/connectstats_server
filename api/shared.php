@@ -29,28 +29,42 @@
 error_reporting(E_ALL);
 
 /*
- *  ----- Garmin Service API -----
- *  User Registration
- *    - Save user access token and secret
- *  Fit File ping
- *    - start subprocess to get callbackURL
- *    - save to db the data
- *    - try to match to activity
- *    - unique by activityFile Id (or the url)
- *    - summary id seem unrelated ot activity summary id and activityFileId
- *  Activity Summary
- *    - save the summary as json
- *    - try to match any corresponding file
- *    - json contains summaryId that matches garmin connect
- *  Matching fit file and activity
- *    - userId and startTimeInSeconds
+ * 
+ *  ----- Typical Workflow ----
+ *  1. Garmin API:       oauth process with garmin, returns accessToken and accessTokenSecret
+ *  2. ConnectStats API: Register user on connectstats and get cs_user_id 
+ *                        uri: api/connectstats/user_register 
+ *                        php: register_user()
+ *  3. ConnectStats API: Validate the token id is correct and get information about the user
+ *                        uri: api/connectstats/validateuser
+ *                        php: validate_user()
+ *  4. ConnectStats API: Trigger backfill if necessary
+ *                        uri: api/garmin/backfill
+ *                        php: backfill_api_entry()
+ *  5. Garmin API:        call garmin api to trigger backfill if necessary. Will trigger call back to `activities` and `file` steps.
+ *                        uri: config['url_backfill_activities']
+ *                        php: backfill_start_process() calls: run_backfill() in queue/background
+ *  6. Garmin API:        Callback from garmin with new activities
+ *                        uri: api/garmin/activities
+ *                        php: process()
+ *  7. Garmin API:        Callback from garmin with new files and callbackURL (one for new activities, multiple for backfill callback)
+ *                        uri: api/garmin/file
+ *                        php: process() 
+ *                        triggers exec_callback_cmd() calls runcallback.php in queue/background
+ *                        
+ *  8. Queue/Background:  runcallback.php calls: run_file_callback()
  *
- *  ----- Query API -----
- *  Query Info for user (userid)
- *    - min date, max date, number of activities, max activity id
- *  List of Activity for user (userid, number, offset from last)
- *    - from activities select for userid startTimeInSeconds DESC
- *  Query from file for userid, assetId
+ *  9. Queue/Background:  runbackfill.php calls: run_backfill()
+ *
+ * 10. Queue/Background:  runfitextract.php calls: fit_extract()
+ *
+ * 11. Connectstats API:  Maintenance of the database state 
+ *                        uri: api/garmin/maintenance
+ *                        Trying to download missing callback calls: maintenance_fix_missing_callback()
+ *                        Trying to link activities to files calls: maintenance_link_activity_files()
+ * 12. Connectstats API:  Get extra json data for activity, for example weather or fit file session information
+ *                        uri: api/connectstats/json
+ *                        php: query_json()
  */
 
 include_once( 'sql_helper.php');
@@ -75,6 +89,17 @@ class StatusCollector {
         $this->messages = array();
         $this->table = NULL;
         $this->verbose = false;
+
+        if( isset( $_SERVER['HTTP_USER_AGENT'] ) ){
+            $this->HTTP_USER_AGENT = $_SERVER['HTTP_USER_AGENT'];
+        }else{
+            $this->HTTP_USER_AGENT = 'Not available';
+        }
+        if( isset( $_SERVER['REMOTE_ADDR'] ) ){
+            $this->REMOTE_ADDR = $_SERVER['REMOTE_ADDR'];
+        }else{
+            $this->REMOTE_ADDR = 'Not available';
+        }
     }
 
     function clear($table){
@@ -115,8 +140,8 @@ class StatusCollector {
             }
             $row = array( 'json' => $rawdata,
                           'message' => implode(', ', $this->messages ),
-                          'user_agent' => $_SERVER['HTTP_USER_AGENT'],
-                          'remote_addr' => $_SERVER['REMOTE_ADDR'],
+                          'user_agent' => $this->HTTP_USER_AGENT,
+                          'remote_addr' => $this->REMOTE_ADDR,
             );
 
             if( ! $sql->insert_or_update( $error_table, $row ) ){
