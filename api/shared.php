@@ -1226,6 +1226,11 @@ class GarminProcess {
     }
     
     function run_backfill( $token_id, $days, $sleep ){
+        if( $this->backfill_disabled ){
+            // If disable, no more to do
+            return false;
+        }
+        
         # Start from 2010, record request time
         #  move 90 days forward from 2010 until reach request time
         # return true is more to do, false if reach end
