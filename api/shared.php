@@ -289,9 +289,9 @@ class GarminProcess {
 
         include( 'config.php' );
         $this->api_config = $api_config;
+
+        $this->backfill_disabled = true;
     }
-
-
     
     function set_verbose($verbose){
         $this->verbose = $verbose;
@@ -842,6 +842,12 @@ class GarminProcess {
     function validate_user( $token_id ){
         $user = $this->user_info_for_token_id($token_id);
         unset( $user['userAccessTokenSecret'] );
+
+        // Pretend backfill was done
+        if( $this->backfill_disabled ){
+            $user['backfillEndTime'] = time();
+            $user['backfillStartTime'] = time();
+        }
         return $user;
     }
 
@@ -1125,14 +1131,17 @@ class GarminProcess {
         $date = mktime(0,0,0,1,1,$year);
         $status = $this->backfill_should_start( $token_id, $date, $force );
         if( $status['start'] == true ){
-            // 3 days at a time, every 4 seconds
-            // should match the 90 days in 120 seconds throttle
-            $this->backfill_start_process( $token_id, $date, 3, 4 );
+            // If disable don't start
+            if( !$this->backfill_disabled ){
+                // 3 days at a time, every 4 seconds
+                // should match the 90 days in 120 seconds throttle
+                $this->backfill_start_process( $token_id, $date, 3, 4 );
+            }
         }
         return( $status );
-        
     }
 
+    
     /**
      *    This function will check that the back fill from the start date
      *    is necessary by checking if either no back fill were registered
