@@ -331,7 +331,7 @@ class sql_helper {
             if( $temporary ){
                 $query = sprintf( 'CREATE TEMPORARY TABLE `%s` (%s) DEFAULT CHARSET=utf8', $table, join( ',', $fulldefs ) );
             }else{
-                $query = sprintf( 'CREATE TABLE `%s` (%s) DEFAULT CHARSET=utf8', $table, join( ',', $fulldefs ) );
+                $query = sprintf( 'CREATE TABLE `%s` (%s) ENGINE=INNODB DEFAULT CHARSET=utf8', $table, join( ',', $fulldefs ) );
             }
             $this->execute_query( $query );
         }else{
