@@ -355,6 +355,13 @@ class GarminProcess {
                 'processed_ts' => 'DATETIME',
                 'json'=>'TEXT'
             ),
+            "cache_fitfiles" => array(
+                'cache_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'started_ts' => 'DATETIME',
+                'processed_ts' => 'DATETIME',
+                'json'=>'TEXT'
+            ),
             "activities" =>  array(
                 'activity_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'cs_user_id' => 'BIGINT(20) UNSIGNED',
@@ -574,9 +581,9 @@ class GarminProcess {
                         $success = true;
                         $last_insert = $stmt->insert_id;
                     }
+                    $stmt->close();
                 }
 
-                $stmt->close();
             }
         }
         if( $success && $last_insert ){
@@ -680,7 +687,7 @@ class GarminProcess {
         if( $this->status->hasError() ) {
             $this->status->record($this->sql,$rawdata);
         }else{
-            $query = sprintf( 'UPDATE %s SET processed_ts = FROM_UNIXTIME(%d) WHERE cache_id = %d', $cachetable, time(), $last_insert_id );
+            $query = sprintf( 'UPDATE %s SET processed_ts = FROM_UNIXTIME(%d) WHERE cache_id = %d', $cachetable, time(), $insert_id );
             $this->sql->execute_query( $query );
         }
         return $rv;
