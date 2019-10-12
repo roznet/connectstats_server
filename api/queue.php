@@ -72,9 +72,9 @@ class Queue {
 
     function __construct(){
         $this->sql = new queue_sql();
-        $this->queue_count = 2;
-        $this->queue_timeout = 10; // seconds
-        $this->verbose = true;
+        $this->queue_count = 5;
+        $this->queue_timeout = 60; // seconds
+        $this->verbose = false;
 
         $this->sql->verbose = $this->verbose;
         
