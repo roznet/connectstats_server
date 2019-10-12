@@ -31,6 +31,6 @@ include_once( 'queue.php');
 $queue = new Queue();
 
 $queue->ensure_commandline($argv??NULL,1);
-$queue->run($argv[1]);
+$queue->run(intval($argv[1]));
 
 ?>

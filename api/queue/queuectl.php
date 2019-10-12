@@ -31,10 +31,15 @@ include_once( 'queue.php');
 $queue = new Queue();
 
 $queue->ensure_commandline($argv??NULL,1);
-if( count( $argv ) > 1 && $argv[1] == 'kill' ){
+
+if( $argv[1] == 'kill' ){
     $queue->kill_queues();
-}else{
+}else if( $argv[1] == 'start' ){
     $queue->start_queues();
+}else if( $argv[1] == 'add' && count( $argv ) > 2){
+    $queue->add_task( $argv[2], getcwd() );
+}else if( $argv[1] == 'run' && count( $argv ) > 2 ){
+    $queue->run($argv[2]);
 }
 
 ?>

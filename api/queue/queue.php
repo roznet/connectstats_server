@@ -31,7 +31,6 @@ include_once( '../sql_helper.php');
 class queue_sql extends sql_helper {
 	function __construct() {
         include( 'config.php' );
-        print_r( $api_config );
 		parent::__construct( $api_config );
 	}
 }
@@ -79,7 +78,8 @@ class Queue {
 
         $this->sql->verbose = $this->verbose;
         
-        $this->ensure_schema();
+        $this->completed = 0;
+        $this->last_completed_ts = NULL;
     }
     
     function ensure_schema() {
@@ -89,14 +89,21 @@ class Queue {
                 'task_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'queue_id' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
                 'task_command' => 'VARCHAR(128)',
+                'task_cwd' => 'VARCHAR(128)',
+                'exec_status' => 'INT UNSIGNED',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                'started_ts' => 'DATETIME',
                 'finished_ts' => 'DATETIME',
                 'not_before_ts' => 'DATETIME'
             ),
             "queues" => array(
-                'queue_id' => 'BIGINT(20) UNSIGNED',
-                'task_id' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
-                'last_task_ts' => 'BIGINT(20) UNSIGNED DEFAULT NULL'
+                'queue_id' => 'BIGINT(20) AUTO_INCREMENT PRIMARY KEY',
+                'queue_index' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
+                'queue_pid' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
+                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                'heartbeat_ts' => 'DATETIME',
+                'status' => 'VARCHAR(16)'
             )
         );
         $create = false;
@@ -122,7 +129,6 @@ class Queue {
      *    This function will ensure that the script is called from the command line
      */
     function ensure_commandline($argv, $min_args = 0){
-
         if( ! isset( $argv[$min_args] ) || count( $argv ) < $min_args || isset( $_SERVER['HTTP_HOST'] ) || isset( $_SERVER['REQUEST_METHOD'] ) ){
             header('HTTP/1.1 403 Forbidden');
             die;
@@ -135,132 +141,173 @@ class Queue {
      *
      */
 
-    
+
+    function add_task( $command, $cwd, $not_before_ts = NULL ){
+        if( $not_before_ts ){
+            $this->sql->insert_or_update( 'tasks', array( 'task_cwd' => $cwd, 'task_command' => $command, 'not_before_ts' => $not_before_ts ) );
+        }else{
+            $this->sql->insert_or_update( 'tasks', array( 'task_cwd' => $cwd, 'task_command' => $command ) );
+        }
+    }
 
     /* **********
      * Run Task functionality
      *
      */
 
+    function run_one_task( $queue_index ){
+        $done = false;
+        $query = sprintf( 'SELECT * FROM tasks WHERE MOD(task_id,%d) = %d AND (finished_ts IS NULL ) AND ( not_before_ts IS NULL || CURRENT_TIMESTAMP() > not_before_ts ) ORDER BY ts LIMIT 1', $this->queue_count, $queue_index );
+        $row = $this->sql->query_first_row( $query );
 
+        if( $row && isset( $row['task_id'] ) ){
+            $task_id = $row['task_id'];
+            $query = sprintf( 'UPDATE tasks SET started_ts = FROM_UNIXTIME(%d), queue_id = %d WHERE task_id = %d', time(), $this->queue_id, $task_id);
+            $this->sql->execute_query( $query );
+
+            $log_dir = sprintf( '%s/log', $row['task_cwd' ] );
+            if( is_dir( $log_dir ) ){
+                $log = sprintf( '%s/task_%d.log', $log_dir, $task_id );
+                $command = sprintf( '%s > %s 2>&1', $row['task_command'], $log );
+            }else{
+                $log = false;
+                $command = sprintf( '%s > /dev/null 2> /dev/null', $row['task_command'] );
+            }
+            if( $this->verbose ){
+                printf( 'EXEC: %s'.PHP_EOL, $command );
+            }
+            $output = NULL;
+            $status = 0;
+            if( is_dir( $row['task_cwd'] ) ){
+                chdir( $row['task_cwd' ] );
+            }
+            exec( $command, $output, $status );
+            if( $log && file_exists( $log ) && filesize( $log )== 0 ){
+                unlink( $log );
+            }
+            $query = sprintf( 'UPDATE tasks SET finished_ts = FROM_UNIXTIME(%d), queue_id = %d, exec_status = %d WHERE task_id = %d', time(), $this->queue_id, $status, $task_id);
+            $this->sql->execute_query( $query );
+            $this->completed += 1;
+            $this->last_completed_ts = time();
+            $done = true;
+        }
+        return $done;
+    }
     
     /* **********
      * Run Queue functionality
      *
      */
-    
-    function heartbeat_file( int $queue_id ){
-        return sprintf( 'heartbeat/queue_%d', $queue_id );
+
+    function update_heartbeat( int $queue_index ){
+        $this->sql->execute_query( sprintf( 'UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ) WHERE queue_id = %d', time(), $this->queue_id ) );
     }
 
-    function update_heartbeat( int $queue_id ){
-        $heartbeat_file = $this->heartbeat_file( $queue_id );
-        if( file_exists( $heartbeat_file ) && ! is_writable( $heartbeat_file ) ){
-            die( sprintf( 'Unable to write heartbeat file %s', $heartbeat_file ) );
-        }
-        if( !file_put_contents( $heartbeat_file,  $this->heartbeat_content( $queue_id ) ) ){
-            # try to unlink the file
-            unlink( $this->heartbeat_file );
-            die( sprintf( 'Unable to remove heartbeat file %s', $heartbeat_file ) );
-        }
+    /**
+     *    Return information about the queue that had the most recent heartbeat for queue_index
+     */
+    function heartbeat_last( int $queue_index ){
+        $rv = $this->sql->query_first_row( sprintf( 'SELECT *, UNIX_TIMESTAMP(heartbeat_ts) AS last_heartbeat FROM queues WHERE queue_index = %d ORDER BY heartbeat_ts DESC LIMIT 1', $queue_index ) );
+        return( $rv );
     }
 
-    function heartbeat_content( $queue_id ){
-        return json_encode( array( 'pid'=>getmypid(), 'time'=>time() ) );
-    }
 
-    function heartbeat_last( int $queue_id ){
-        $rv = NULL;
-        $heartbeat_file = $this->heartbeat_file( $queue_id );
+    /**
+     *   Checks if a queue for same index has recent heart beat but different queue_id
+     *   If it's the case, die
+     */
+    function check_concurrent_queue( int $queue_index ){
+        $heartbeat = $this->heartbeat_last($queue_index);
         
-        if( is_readable( $heartbeat_file ) ){
-            $rv = json_decode( file_get_contents( $heartbeat_file ), true );
-        }
-        return $rv;
-    }
-
-    function check_concurrent_queue( int $queue_id ){
-        $previous = $this->heartbeat_last($queue_id);
-        if( isset( $previous['pid'] ) && intval( $previous['pid'] ) != getmypid() &&
-            isset( $previous['time'] ) && abs(time() - intval($previous['time'])) < $this->queue_timeout ){
+        if( isset( $heartbeat['queue_id'] ) &&
+            intval( $heartbeat['queue_id'] ) != $this->queue_id &&
+            isset( $heartbeat['heartbeat_ts'] ) &&
+            abs(time() - intval($heartbeat['last_heartbeat'])) < $this->queue_timeout ){
+            $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:concurrent', heartbeat_ts = NULL WHERE queue_id = %d", $this->queue_id ) );
             die( 'concurrent queue exist' );
         }
     }
     
-    function run( int $queue_id ){
-        print ( 'starting'.PHP_EOL );
-        if( $queue_id >= $this->queue_count || $queue_id < 0){
+    function run( int $queue_index ){
+        $this->ensure_schema();
+        if( $this->verbose ){
+            print ( 'starting'.PHP_EOL );
+        }
+        if( $queue_index >= $this->queue_count || $queue_index < 0){
             die( 'Invalid id number for queue' );
         }
 
-        while( true ){
-            $this->check_concurrent_queue( $queue_id );
-            $this->update_heartbeat( $queue_id );
-            printf( 'heartbeat %s'.PHP_EOL, date( DATE_RFC2822 ) );
-            sleep( 2 );
+        if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'queue_index'=>$queue_index, 'status' => 'running' ) ) ){
+            $this->queue_id = $this->sql->insert_id();
+            while( true ){
+                $this->check_concurrent_queue( $queue_index );
+                $this->update_heartbeat( $queue_index );
+                if( ! $this->run_one_task( $queue_index ) ){
+                    sleep( 2 );
+                }
+            }
         }
     }
 
     function start_queues(){
-        for( $queue_id = 0 ; $queue_id < $this->queue_count; $queue_id++ ){
+        for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
-
-            $heartbeat = $this->heartbeat_last( $queue_id );
+            $reason = NULL;
+            
+            $heartbeat = $this->heartbeat_last( $queue_index );
             if( $heartbeat == NULL ){
-                printf( 'Queue %d: no heartbeat'.PHP_EOL, $queue_id );
+                $reason = 'no existing queue';
             }else {
-                if( !isset( $heartbeat['time'] ) ){
-                    printf( 'Queue %d: no time in heartbeat'.PHP_EOL, $queue_id );
+                if( !isset( $heartbeat['last_heartbeat'] ) || !$heartbeat['last_heartbeat'] ){
+                    $reason = 'no heartbeat' ;
                 }else{
-                    if( abs(time() - intval($heartbeat['time'])) < $this->queue_timeout ){
-                        printf( 'Queue %d: heartbeat running. pid=%d last=%s'.PHP_EOL, $queue_id, $heartbeat['pid'], date( DATE_RFC2822, $heartbeat['time'] ) );
+                    if( abs(time() - intval($heartbeat['last_heartbeat'])) < $this->queue_timeout ){
+                        printf( 'Queue %d: heartbeat running. pid=%d last=%s'.PHP_EOL, $queue_index, $heartbeat['queue_pid'],  $heartbeat['heartbeat_ts'] );
                         $queue_need_start = false;
                     }else{
-                        printf( 'Queue %d: old heartbeat %d (at %s)'.PHP_EOL, $queue_id, abs(time() - intval($heartbeat['time'])),
-                                date( DATE_RFC2822, $heartbeat['time'] ) );
+                        $reason = sprintf( 'heartbeat timed out %d (at %s)', abs(time() - intval($heartbeat['last_heartbeat'])),
+                                           $heartbeat['heartbeat_ts']  );
+                        $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:timeout', heartbeat_ts = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );
                     }
                 }
             }
 
             if( $queue_need_start ){
-                printf( 'Queue %d: Starting'.PHP_EOL, $queue_id);
-                $this->exec_queue( $queue_id );
+                printf( 'Queue %d: Starting. %s'.PHP_EOL, $queue_index, $reason);
+                $this->exec_queue( $queue_index );
             }
         }
     }
 
     function kill_queues(){
-        for( $queue_id = 0 ; $queue_id < $this->queue_count; $queue_id++ ){
+        for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             
-            $heartbeat = $this->heartbeat_last( $queue_id );
+            $heartbeat = $this->heartbeat_last( $queue_index );
             if( $heartbeat == NULL ){
-                printf( 'Queue %d: no heartbeat'.PHP_EOL, $queue_id );
+                printf( 'Queue %d: no heartbeat'.PHP_EOL, $queue_index );
             }else {
-                if( isset( $heartbeat['pid'] ) ){
-                    $cmd = sprintf( 'kill -9 %d', intval( $heartbeat['pid'] ) );
-                    printf( 'Queue %d: %s'.PHP_EOL, $queue_id, $cmd );
+                if( isset( $heartbeat['queue_pid'] ) ){
+                    $cmd = sprintf( 'kill -9 %d', intval( $heartbeat['queue_pid'] ) );
+                    printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
                     exec( $cmd );
+                    $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:killed', heartbeat_ts = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );
                 }
-            }
-            if( file_exists( $this->heartbeat_file( $queue_id )) ){
-                unlink( $this->heartbeat_file( $queue_id ) );
             }
         }
     }
 
-    function exec_queue( $queue_id ){
+    function exec_queue( $queue_index ){
         if( is_writable( 'log' ) ){
-            $log = sprintf( 'log/queue_%d_%s', $queue_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php runqueue.php %d  > %s.log 2>&1 &', $queue_id, $log );
+            $log = sprintf( 'log/queue_%d_%s', $queue_index, strftime( '%Y%m%d_%H%M%S',time() ) );
+            $command = sprintf( 'php runqueue.php %d  > %s.log 2>&1 &', $queue_index, $log );
         }else{
-            $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_id );
+            $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_index );
         }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
         }
         exec( $command );
-
     }
 }
 
