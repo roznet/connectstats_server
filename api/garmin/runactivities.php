@@ -23,17 +23,28 @@
  *  SOFTWARE.
  *  
  *
- *  This is the entry point for the Garmin Health API to notify of a file being 
- *  Ready to be downloaded. It will trigger the download in the background
+ * This script is the main entry point for call back from the Garmin Health API
+ * 
+ * This is expected to be called a lot, so should be lightweight and robust
+ *
+ * It will save the input from the call back into the database
  */
+
+
 
 include_once('../shared.php');
 
+$required_fields = array(
+    'summaryId', 'startTimeInSeconds'
+);
 
 $process = new GarminProcess();
 
-if( ! $process->save_to_cache('fitfiles') ) {
-    header('HTTP/1.1 400 Bad Request');
-}
+$process->ensure_commandline($argv??NULL);
 
+if( isset( $argv[1] ) ){
+    if( ! $process->process('activities', $argv[1], $required_fields ) ) {
+        print( 'error' );
+    }
+}   
 ?>

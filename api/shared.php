@@ -327,7 +327,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 3;
+        $schema_version = 4;
         $schema = array(
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -347,6 +347,13 @@ class GarminProcess {
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
                 'backfillStartTime' => 'BIGINT(20) UNSIGNED',
                 'backfillEndTime' => 'BIGINT(20) UNSIGNED'
+            ),
+            "cache_activities" => array(
+                'cache_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'started_ts' => 'DATETIME',
+                'processed_ts' => 'DATETIME',
+                'json'=>'TEXT'
             ),
             "activities" =>  array(
                 'activity_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -520,6 +527,64 @@ class GarminProcess {
         return $rv;
     }
 
+
+    function cache_for_table($table){
+        return sprintf( 'cache_%s', $table);
+    }
+    
+    /**
+     * save cache
+     */
+    function save_to_cache($table){
+        $success = false;
+        $start_time = time();
+        $last_insert = NULL;
+        
+        $this->ensure_schema();
+
+        $cachetable = $this->cache_for_table($table);
+
+        $this->status->clear($cachetable);
+
+        $rawdata = file_get_contents("php://input");
+        if( ! $rawdata ){
+            $this->status->error('Input from query appears empty' );
+        }
+
+        if( $this->status->success() ) {
+            $data = json_decode($rawdata,true);
+            if( ! $data ) {
+                $this->status->error( 'Failed to decode json' );
+            }else{
+                $query = sprintf( 'INSERT INTO %s (started_ts,json) VALUES (FROM_UNIXTIME(%d),?)', $cachetable, $start_time);
+
+                $stmt = $this->sql->connection->prepare($query);
+                if( $stmt ){
+                    if( $this->verbose ){
+                        printf( 'EXECUTE: %s'.PHP_EOL, $query );
+                    }
+                    $json = json_encode($data);
+                    $stmt->bind_param('s', $json);
+                    if (!$stmt->execute()) {
+                        $this->status->error(  "Execute failed: (" . $stmt->errno . ") " . $stmt->error );
+                        if( $this->verbose ){
+                            printf( 'ERROR: %s [%s] '.PHP_EOL,  $stmt->error, $query);
+                        }
+                    }else{
+                        $success = true;
+                        $last_insert = $stmt->insert_id;
+                    }
+                }
+
+                $stmt->close();
+            }
+        }
+        if( $success && $last_insert ){
+            $this->exec_activities_cmd( $table, $last_insert );
+        }
+        return $success;
+    }
+    
     /**
      * Main process function for the API entry point call back from the 
      * garmin service
@@ -529,7 +594,7 @@ class GarminProcess {
      * of the rows, for example skip callbackURL
      *
      */
-    function process($table, $required, $unique_keys = NULL ) {
+    function process($table, $insert_id, $required, $unique_keys = NULL ) {
         $this->ensure_schema();
         
         $this->status->clear($table);
@@ -538,14 +603,14 @@ class GarminProcess {
             'userId' => 'VARCHAR(1024)',
             'userAccessToken' => 'VARCHAR(512)',
         );
-
-        $rawdata = file_get_contents("php://input");
-        if( ! $rawdata ){
+        $cachetable = $this->cache_for_table($table);
+        $rawdata = $this->sql->query_first_row(sprintf('SELECT json FROM %s WHERE cache_id = %d', $cachetable, $insert_id));
+        if( ! isset($rawdata['json'] ) ){
             $this->status->error('Input from query appears empty' );
         }
 
         if( $this->status->success() ) {
-            $data = json_decode($rawdata,true);
+            $data = json_decode($rawdata['json'],true);
             if( ! $data ) {
                 $this->status->error( 'Failed to decode json' );
             }
@@ -611,16 +676,30 @@ class GarminProcess {
             }
         }
         $rv = $this->status->success();
-        #$this->status->error('for debug logging');
 
         if( $this->status->hasError() ) {
             $this->status->record($this->sql,$rawdata);
+        }else{
+            $query = sprintf( 'UPDATE %s SET processed_ts = FROM_UNIXTIME(%d) WHERE cache_id = %d', $cachetable, time(), $last_insert_id );
+            $this->sql->execute_query( $query );
         }
         return $rv;
     }
 
+    function exec_activities_cmd( $table, $last_insert_id ){
+        if( is_writable( 'tmp' ) ){
+            $log = sprintf( 'tmp/activitities_%d_%s', $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+            $command = sprintf( 'php run%s.php %d  > %s.log 2> %s-err.log &', $table, $last_insert_id, $log, $log );
+        }else{
+            $command = sprintf( 'php run%s.php %d > /dev/null 2> /dev/null &', $table, $last_insert_id );
+        }
+        if( $this->verbose ){
+            printf( 'Exec %s'.PHP_EOL, $command );
+        }
+        exec( $command );
+    }
+    
     function exec_backfill_cmd( $token_id, $days, $sleep ){
-
         if( is_writable( 'tmp' ) ){
             $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php runbackfill.php %s %s %s > %s.log 2> %s-err.log &', $token_id, $days, $sleep, $log, $log );

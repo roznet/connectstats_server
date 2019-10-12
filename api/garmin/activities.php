@@ -34,14 +34,10 @@
 
 include_once('../shared.php');
 
-$required_fields = array(
-    'summaryId', 'startTimeInSeconds'
-);
-
 $process = new GarminProcess();
 
-if( ! $process->process('activities', $required_fields ) ) {
-    header('HTTP/1.1 500 Internal Server Error');
+if( ! $process->save_to_cache('activities') ) {
+    header('HTTP/1.1 400 Bad Request');
 }
    
 ?>

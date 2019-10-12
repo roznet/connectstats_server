@@ -29,11 +29,18 @@
 
 include_once('../shared.php');
 
+$required_fields = array(
+    'callbackURL', 'startTimeInSeconds', 'summaryId'
+);
+$unique_keys = array( 'startTimeInSeconds', 'summaryId' );
 
 $process = new GarminProcess();
 
-if( ! $process->save_to_cache('fitfiles') ) {
-    header('HTTP/1.1 400 Bad Request');
+$process->ensure_commandline($argv??NULL);
+if( isset( $argv[1] ) ){
+    if( ! $process->process('fitfiles', $argv[1], $required_fields, $unique_keys ) ){
+        print( 'error' );
+    }
 }
 
 ?>
