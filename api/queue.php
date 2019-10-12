@@ -74,7 +74,7 @@ class Queue {
         $this->sql = new queue_sql();
         $this->queue_count = 5;
         $this->queue_sleep = 2; // seconds to sleep in between queue task check
-        $this->queue_timeout = 60; // seconds
+        $this->queue_timeout = 90; // seconds
         $this->verbose = false;
 
         $this->sql->verbose = $this->verbose;
