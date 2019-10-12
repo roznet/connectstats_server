@@ -687,43 +687,47 @@ class GarminProcess {
         return $rv;
     }
 
-    function exec( $command ){
+    function exec( $command, $logfile ){
         if( $this->use_queue ){
             $queue = new Queue();
             $queue->add_task( $command, getcwd() );
             if( $this->verbose ){
                 printf( 'Queue Task: %s'.PHP_EOL, $command );
             }
-            exec( '(cd ../queue;php queuectl.php start) &' );
+            if( file_exists( '../queuectl.php' ) ){
+                exec( '(cd ../queue;php queuectl.php start) > /dev/null &' );
+            }
         }else{
             if( $this->verbose ){
                 printf( 'Exec %s'.PHP_EOL, $command );
             }
-            exec( $command . ' &' );
+            exec( sprintf( '%s > %s 2>&1 &', $command ) );
         }
     }
     
     function exec_activities_cmd( $table, $last_insert_id ){
         if( is_writable( 'log' ) ){
-            $log = sprintf( 'log/process_%s_%d_%s', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+            $logfile = sprintf( 'log/process_%s_%d_%s', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php run%s.php %d  > %s.log 2> %s-err.log', $table, $last_insert_id, $log, $log );
         }else{
-            $command = sprintf( 'php run%s.php %d > /dev/null 2> /dev/null', $table, $last_insert_id );
+            $logfile = '/dev/null';
+            $command = sprintf( 'php run%s.php %d ', $table, $last_insert_id );
         }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
         }
-        $this->exec( $command );
+        $this->exec( $command, $log );
     }
     
     function exec_backfill_cmd( $token_id, $days, $sleep ){
         if( is_writable( 'log' ) ){
             $log = sprintf( 'log/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php runbackfill.php %s %s %s > %s.log 2> %s-err.log', $token_id, $days, $sleep, $log, $log );
+            $command = sprintf( 'php runbackfill.php %s %s %s', $token_id, $days, $sleep );
         }else{
-            $command = sprintf( 'php runbackfill.php %s %s %s > /dev/null 2> /dev/null', $token_id, $days, $sleep );
+            $log = '/dev/null';
+            $command = sprintf( 'php runbackfill.php %s %s %s', $token_id, $days, $sleep );
         }
-        $this->exec( $command );
+        $this->exec( $command, $log );
     }
     
     function exec_callback_cmd( $table, $command_ids ){
@@ -735,17 +739,16 @@ class GarminProcess {
         foreach( $chunks as $chunk ){
             $file_ids = implode( ' ', $chunk );
 
-            $command_base = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
-            if( is_writable( 'tmp' ) ){
+            $command = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
+            if( is_writable( 'log' ) ){
                 $logfile = str_replace( ' ', '_', sprintf( 'log/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
-                $command = sprintf( '%s > %s.log 2> %s-err.log', $command_base, $logfile, $logfile );
             }else{
-                $command = sprintf( '%s > /dev/null 2> /dev/null', $command_base );
+                $logfile = '/dev/null';
             }
             if( $this->verbose ){
                 printf( 'Exec %s'.PHP_EOL, $command );
             }
-            $this->exec( $command );
+            $this->exec( $command, $logfile );
         }
     }
     

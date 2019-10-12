@@ -26,7 +26,8 @@
 
 error_reporting(E_ALL);
 
-include_once( '../sql_helper.php');
+set_include_path( '.:..' );
+include_once( 'sql_helper.php');
 
 class queue_sql extends sql_helper {
 	function __construct() {
