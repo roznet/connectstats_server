@@ -696,7 +696,18 @@ class GarminProcess {
                 printf( 'Queue Task: %s'.PHP_EOL, $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
-                exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
+                $file_lock = 'log/start_lock';
+                if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
+                    if( $this->verbose ){
+                            printf( 'check start queue %d'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                    }
+                    touch( $file_lock );
+                    exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
+                }else{
+                    if( $this->verbose ){
+                        printf( 'wait queue %d'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                    }
+                }
             }else{
                 printf( 'cant start queue %s', getcwd() );
             }

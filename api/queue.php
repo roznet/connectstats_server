@@ -73,6 +73,7 @@ class Queue {
     function __construct(){
         $this->sql = new queue_sql();
         $this->queue_count = 5;
+        $this->queue_sleep = 2; // seconds to sleep in between queue task check
         $this->queue_timeout = 60; // seconds
         $this->verbose = false;
 
@@ -243,7 +244,7 @@ class Queue {
                 $this->check_concurrent_queue( $queue_index );
                 $this->update_heartbeat( $queue_index );
                 if( ! $this->run_one_task( $queue_index ) ){
-                    sleep( 2 );
+                    sleep( $this->queue_sleep );
                 }
             }
         }
