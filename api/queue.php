@@ -270,7 +270,7 @@ class Queue {
                                            $heartbeat['heartbeat_ts']  );
                         $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:timeout', heartbeat_ts = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );
                         if( isset( $heartbeat['queue_pid'] ) ){
-                            $cmd = sprintf( 'kill -9 %d', intval( $heartbeat['queue_pid'] ) );
+                            $cmd = sprintf( 'kill -9 %d > /dev/null 2>&1', intval( $heartbeat['queue_pid'] ) );
                             printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
                             exec( $cmd );
                         }
@@ -294,7 +294,7 @@ class Queue {
                 printf( 'Queue %d: no heartbeat'.PHP_EOL, $queue_index );
             }else {
                 if( isset( $heartbeat['queue_pid'] ) ){
-                    $cmd = sprintf( 'kill -9 %d', intval( $heartbeat['queue_pid'] ) );
+                    $cmd = sprintf( 'kill -9 %d > /dev/null 2>&1', intval( $heartbeat['queue_pid'] ) );
                     printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
                     exec( $cmd );
                     $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:killed', heartbeat_ts = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );

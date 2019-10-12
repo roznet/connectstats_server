@@ -6,14 +6,14 @@ $process = new GarminProcess();
 
 $process->ensure_commandline($argv??NULL);
 
-if( isset( $argv[2] ) ){
-    $limit = intval( $argv[2] );
+if( isset( $argv[1] ) ){
+    $limit = intval( $argv[1] );
 }else{
     $limit = 20;
 }
 
-if( isset( $argv[3] ) ){
-    $user_id = intval( $argv[3] );
+if( isset( $argv[2] ) ){
+    $user_id = intval( $argv[2] );
 }else{
     $user_id = NULL;
 }
