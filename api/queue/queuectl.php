@@ -26,7 +26,7 @@
 
 error_reporting(E_ALL);
 
-include_once( 'queue.php');
+include_once( '../queue.php');
 
 $queue = new Queue();
 

@@ -67,8 +67,9 @@ error_reporting(E_ALL);
  *                        php: query_json()
  */
 
+
+include_once( 'queue.php');
 include_once( 'sql_helper.php');
-include_once( 'queue/queue.php');
 
 class garmin_sql extends sql_helper{
 	function __construct() {
@@ -694,8 +695,10 @@ class GarminProcess {
             if( $this->verbose ){
                 printf( 'Queue Task: %s'.PHP_EOL, $command );
             }
-            if( file_exists( '../queuectl.php' ) ){
-                exec( '(cd ../queue;php queuectl.php start) > /dev/null &' );
+            if( file_exists( '../queue/queuectl.php' ) ){
+                exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
+            }else{
+                printf( 'cant start queue %s', getcwd() );
             }
         }else{
             if( $this->verbose ){
@@ -707,8 +710,8 @@ class GarminProcess {
     
     function exec_activities_cmd( $table, $last_insert_id ){
         if( is_writable( 'log' ) ){
-            $logfile = sprintf( 'log/process_%s_%d_%s', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php run%s.php %d  > %s.log 2> %s-err.log', $table, $last_insert_id, $log, $log );
+            $logfile = sprintf( 'log/process_%s_%d_%s.log', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+            $command = sprintf( 'php run%s.php %d', $table, $last_insert_id );
         }else{
             $logfile = '/dev/null';
             $command = sprintf( 'php run%s.php %d ', $table, $last_insert_id );
@@ -716,7 +719,7 @@ class GarminProcess {
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
         }
-        $this->exec( $command, $log );
+        $this->exec( $command, $logfile );
     }
     
     function exec_backfill_cmd( $token_id, $days, $sleep ){
@@ -741,7 +744,7 @@ class GarminProcess {
 
             $command = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
             if( is_writable( 'log' ) ){
-                $logfile = str_replace( ' ', '_', sprintf( 'log/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
+                $logfile = str_replace( ' ', '_', sprintf( 'log/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command ), 0, 8 ) ) );
             }else{
                 $logfile = '/dev/null';
             }

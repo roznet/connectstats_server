@@ -34,9 +34,15 @@ build_local_from_scratch
 # Should be unauthorized
 ${QUERY} -t=2 "${base_url}/api/connectstats/search?token_id=1"
 # Check get back the list and fit file
+rm t.json t.fit f.json
+echo "waiting a bit for tasks to complete"
+sleep 2
+
 ${QUERY} -t=1 -o=t.json "${base_url}/api/connectstats/search?token_id=1&start=0&limit=50"
 ${QUERY} -t=1 -o=t.fit  "${base_url}/api/connectstats/file?token_id=1&activity_id=1"
+
 ${QUERY} -t=1 -o=f.json  "${base_url}/api/connectstats/json?token_id=1&limit=50&table=fitsession"
+
 
 ls -lrt t.fit t.json f.json
 php test.php validate

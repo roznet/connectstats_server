@@ -26,13 +26,12 @@
 
 error_reporting(E_ALL);
 
-set_include_path( '.:..' );
 include_once( 'sql_helper.php');
 
 class queue_sql extends sql_helper {
 	function __construct() {
         include( 'config.php' );
-		parent::__construct( $api_config );
+		parent::__construct( $api_config, $db_key = 'db_queue' );
 	}
 }
 

@@ -52,10 +52,10 @@ class sql_helper {
 	function make_read_write(){
 		$this->readOnly = 0;
 	}
-	function __construct( $input ) {
+	function __construct( $input, $db_key = 'database' ) {
         if( is_array( $input ) ){
             $api_config = $input;
-            $db = $api_config['database'];
+            $db = $api_config[$db_key];
         }else{
             $db = $input;
             include( 'config.php');
