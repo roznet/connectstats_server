@@ -5,7 +5,7 @@
  
 class sql_helper {
 	var $connection;
-	var $db_database = 'roznet';
+	var $db_database = NULL;
 	var $current_query = NULL;
 	var $current_query_str = NULL;
 	var $lasterror = NULL;
@@ -52,8 +52,15 @@ class sql_helper {
 	function make_read_write(){
 		$this->readOnly = 0;
 	}
-	function __construct( $db = 'roznet' ) {
-		include( 'config.php');
+	function __construct( $input ) {
+        if( is_array( $input ) ){
+            $api_config = $input;
+            $db = $api_config['database'];
+        }else{
+            $db = $input;
+            include( 'config.php');
+        }
+
 		$this->db_database = $db;
 		$this->db_username = $api_config['db_username'];
 		$this->db_password = $api_config['db_password'];;

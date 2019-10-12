@@ -72,15 +72,7 @@ include_once( 'sql_helper.php');
 class garmin_sql extends sql_helper{
 	function __construct() {
         include( 'config.php' );
-		parent::__construct( $api_config['database'] );
-	}
-	static function get_instance() {
-		static $instance;
-		if( ! isset( $instance ) ){
-            include( 'config.php' );
-            $instance = new sql_helper( NULL, $api_config['database'] );
-		}
-		return( $instance );
+		parent::__construct( $api_config );
 	}
 }
 
@@ -694,8 +686,8 @@ class GarminProcess {
     }
 
     function exec_activities_cmd( $table, $last_insert_id ){
-        if( is_writable( 'tmp' ) ){
-            $log = sprintf( 'tmp/activitities_%d_%s', $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+        if( is_writable( 'log' ) ){
+            $log = sprintf( 'log/process_%s_%d_%s', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php run%s.php %d  > %s.log 2> %s-err.log &', $table, $last_insert_id, $log, $log );
         }else{
             $command = sprintf( 'php run%s.php %d > /dev/null 2> /dev/null &', $table, $last_insert_id );
@@ -707,8 +699,8 @@ class GarminProcess {
     }
     
     function exec_backfill_cmd( $token_id, $days, $sleep ){
-        if( is_writable( 'tmp' ) ){
-            $log = sprintf( 'tmp/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+        if( is_writable( 'log' ) ){
+            $log = sprintf( 'log/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php runbackfill.php %s %s %s > %s.log 2> %s-err.log &', $token_id, $days, $sleep, $log, $log );
         }else{
             $command = sprintf( 'php runbackfill.php %s %s %s > /dev/null 2> /dev/null &', $token_id, $days, $sleep );
@@ -730,7 +722,7 @@ class GarminProcess {
 
             $command_base = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
             if( is_writable( 'tmp' ) ){
-                $logfile = str_replace( ' ', '_', sprintf( 'tmp/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
+                $logfile = str_replace( ' ', '_', sprintf( 'log/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command_base ), 0, 8 ) ) );
                 $command = sprintf( '%s > %s.log 2> %s-err.log &', $command_base, $logfile, $logfile );
             }else{
                 $command = sprintf( '%s > /dev/null 2> /dev/null', $command_base );
@@ -1590,7 +1582,7 @@ class GarminProcess {
             
             $db = $this->api_config['database'];
             $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
-            $logfile = sprintf( 'tmp/%s_%s.log', $table, $key_start );
+            $logfile = sprintf( 'log/%s_%s.log', $table, $key_start );
             $defaults = sprintf( 'tmp/.%s.cnf', $db );
             file_put_contents( $defaults, sprintf( '[mysqldump]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
@@ -1798,6 +1790,7 @@ class GarminProcess {
                     'userId' => $one['userId'],
                     'userAccessToken' => $one['userAccessToken'],
                     'summaryId' => $one['file_id'],
+
                     'fileType' => 'FIT',
                     'startTimeInSeconds' => intval($one['startTimeInSeconds']),
                     'callbackURL' => sprintf( '%s&file_id=%d', $file_url, $one['file_id'] )
