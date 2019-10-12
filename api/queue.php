@@ -89,7 +89,7 @@ class Queue {
             "tasks" => array(
                 'task_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'queue_id' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
-                'task_command' => 'VARCHAR(128)',
+                'task_command' => 'VARCHAR(512)',
                 'task_cwd' => 'VARCHAR(128)',
                 'exec_status' => 'INT UNSIGNED',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',

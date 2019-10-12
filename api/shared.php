@@ -1535,11 +1535,11 @@ class GarminProcess {
     }
 
     // this will rerun the callback functions from fitfiles (push) that didn't succeed and are still missing
-    function maintenance_fix_missing_callback($cs_user_id = NULL){
+    function maintenance_fix_missing_callback($cs_user_id = NULL,$limit=20){
         if( $cs_user_id ){
-            $query = sprintf( 'SELECT * FROM fitfiles WHERE ISNULL(asset_id) AND cs_user_id = %d', intval($cs_user_id) );
+            $query = sprintf( 'SELECT * FROM fitfiles WHERE ISNULL(asset_id) AND cs_user_id = %d ORDER BY ts DESC LIMIT %d', intval($cs_user_id), intval($limit) );
         }else{
-            $query = 'SELECT * FROM fitfiles WHERE ISNULL(asset_id)';
+            $query = "SELECT * FROM fitfiles WHERE ISNULL(asset_id) ORDER BY ts DESC LIMIT $limit";
         }
         $missings = $this->sql->query_as_array( $query );
         $command_ids = array();
