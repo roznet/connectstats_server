@@ -12,8 +12,8 @@ if( isset( $argv[2] ) ){
     $limit = 20;
 }
 
-if( isset( $argv[2] ) ){
-    $user_id = intval( $argv[2] );
+if( isset( $argv[3] ) ){
+    $user_id = intval( $argv[3] );
 }else{
     $user_id = NULL;
 }
