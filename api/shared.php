@@ -1137,7 +1137,7 @@ class GarminProcess {
             
                 $url = $callback_url;
                 $ntries = 3;
-                $nextwait = 60;
+                $nextwait = 5;
                 $data = false;
                 while( $ntries > 0 ){
                     $data = $this->get_url_data( $url, $userAccessToken, $userAccessTokenSecret );
