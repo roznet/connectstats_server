@@ -46,5 +46,7 @@ if( isset( $argv[1] ) ){
     if( ! $process->process('activities', $argv[1], $required_fields ) ) {
         print( 'error' );
     }
-}   
+}
+printf( 'Exiting'.PHP_EOL );
+exit();
 ?>

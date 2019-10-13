@@ -29,4 +29,5 @@ if( isset( $argv[1] ) ){
         }
     }
 }
+exit();
 ?>

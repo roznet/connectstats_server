@@ -229,7 +229,7 @@ class Queue {
     }
 
     function heartbeat_belong_to_this_queue( array $heartbeat ){
-        return( isset( $heartbeat['queue_id'] ) && intval( $heartbeat['queue_id'] ) == $this->queue_id );
+        return( isset( $heartbeat['queue_id'] ) && isset( $this->queue_id ) && intval( $heartbeat['queue_id'] ) == $this->queue_id );
     }
     
     /**
@@ -237,15 +237,14 @@ class Queue {
      *   If it's the case, die
      */
     function check_concurrent_queue( int $queue_index ){
-        
         $heartbeat = $this->heartbeat_last($queue_index);
 
         if( !$this->heartbeat_belong_to_this_queue( $heartbeat ) &&
             !$this->heartbeat_has_timedout( $heartbeat ) &&
             $this->heartbeat_is_running( $heartbeat ) ){
-            $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:concurrent', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
-            die( 'ERROR: concurrent queue exist, aborting' );
+            return true;
         }
+        return false;
     }
     
     function run( int $queue_index ){
@@ -254,14 +253,20 @@ class Queue {
         if( $queue_index >= $this->queue_count || $queue_index < 0){
             die( sprintf( 'ERROR: Invalid id number for queue, aborting queue_id=%d', $this->queue_id ) );
         }
-
+        if( $this->check_concurrent_queue( $queue_index ) ){
+            die( "Aborting start, concurent queue exists" );
+        }
+        
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'queue_index'=>$queue_index, 'status' => 'running' ) ) ){
             $this->queue_id = $this->sql->insert_id();
             if( $this->verbose ){
                 printf( 'Starting queue_id=%d index=%d'.PHP_EOL, $this->queue_id, $queue_index );
             }
             while( true ){
-                $this->check_concurrent_queue( $queue_index );
+                if( $this->check_concurrent_queue( $queue_index ) ){
+                    $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:concurrent', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
+                    die( 'ERROR: concurrent queue exist, aborting' );
+                }
                 $this->update_heartbeat( $queue_index );
                 if( ! $this->run_one_task( $queue_index ) ){
                     sleep( $this->queue_sleep );

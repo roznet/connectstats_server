@@ -21,7 +21,7 @@ if( isset( $argv[1] ) && isset( $argv[2] )){
         print( "Done".PHP_EOL);
     }
 }
-
+exit();
 ?>
 
 

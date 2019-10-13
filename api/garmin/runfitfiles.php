@@ -42,5 +42,6 @@ if( isset( $argv[1] ) ){
         print( 'error' );
     }
 }
-
+printf( 'Exiting'.PHP_EOL );
+exit();
 ?>

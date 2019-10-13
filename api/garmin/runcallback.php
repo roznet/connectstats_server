@@ -13,4 +13,5 @@ if( isset( $argv[1] ) ){
     $process->set_verbose(true);
     $process->run_file_callback( $table, $cbids );
 }
+exit();
 ?>
