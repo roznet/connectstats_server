@@ -40,6 +40,8 @@ if( $argv[1] == 'kill' ){
     $queue->start_queues();
 }else if( $argv[1] == 'list' ){
     $queue->list_queues();
+}else if( $argv[1] == 'ps' ){
+    $queue->find_running_queues();
 }else if( $argv[1] == 'add' && count( $argv ) > 2){
     $queue->add_task( $argv[2], getcwd() );
 }else if( $argv[1] == 'run' && count( $argv ) > 2 ){

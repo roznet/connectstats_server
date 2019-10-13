@@ -29,8 +29,12 @@ error_reporting(E_ALL);
 include_once( 'sql_helper.php');
 
 class queue_sql extends sql_helper {
-	function __construct() {
-        include( 'config.php' );
+	function __construct( $input = NULL ) {
+        if( $input ){
+            $api_config = $input;
+        }else{
+            include( 'config.php' );
+        }
 		parent::__construct( $api_config, $db_key = 'db_queue' );
 	}
 }
@@ -71,12 +75,24 @@ class queue_sql extends sql_helper {
 class Queue {
 
     function __construct(){
-        $this->sql = new queue_sql();
+        include( 'config.php' );
+
+        $this->sql = new queue_sql( $api_config );
         $this->queue_count = 5;
         $this->queue_sleep = 2; // seconds to sleep in between queue task check
         $this->queue_timeout = 90; // seconds
         $this->verbose = false;
 
+        if( isset( $api_config['queue_timeout'] ) ){
+            $this->queue_timeout = intval( $api_config['queue_timeout'] );
+        }
+        if( isset( $api_config['queue_sleep'] ) ){
+            $this->queue_sleep = intval( $api_config['queue_sleep'] );
+        }
+        if( isset( $api_config['queue_count'] ) ){
+            $this->queue_count = intval( $api_config['queue_count'] );
+        }
+        
         $this->sql->verbose = $this->verbose;
         
         $this->completed = 0;
@@ -190,6 +206,7 @@ class Queue {
                 printf( 'DONE: (%d secs) %s'.PHP_EOL, $elapsed, $command );
             }
             if( $elapsed > 30 ){
+                print( 'TIME: reconnecting mysql'.PHP_EOL );
                 // Restart new connection to avoid time out
                 $this->sql = new queue_sql();
             }
@@ -256,24 +273,44 @@ class Queue {
         if( !$this->heartbeat_belong_to_this_queue( $heartbeat ) &&
             !$this->heartbeat_has_timedout( $heartbeat ) &&
             $this->heartbeat_is_running( $heartbeat ) ){
-            return true;
+            return $heartbeat;
         }
-        return false;
+        return NULL;
+    }
+
+    function create_queue( $queue_index ){
+        $rv = NULL;
+        if( $this->sql->insert_or_update( 'queues', array( 'queue_index'=>$queue_index, 'status' => 'pending' ) ) ){
+            $rv = $this->sql->insert_id();
+        }
+        return $rv;
     }
     
-    function run( int $queue_index ){
+    function run( int $queue_id ){
         $this->ensure_schema();
         $this->verbose = true;
+
+        $queue = $this->sql->query_first_row( sprintf( 'SELECT * FROM queues WHERE queue_id = %d', $queue_id ) );
+        if( !$queue || ! isset( $queue['queue_index'] ) ){
+            die( sprintf( 'ERROR: could not start queue with queue_id = %d', $queue_id ) );
+        }
+        if( isset( $queue['queue_pid'] ) && $queue['queue_pid'] ){
+            die( sprintf( 'ERROR: queue_id = %d already started with pid = %d'.PHP_EOL, $queue_id, $queue['queue_pid'] ) );
+        }
+
+        $queue_index = $queue['queue_index'];
+        $this->queue_id = $queue_id;
+
+        
         if( $queue_index >= $this->queue_count || $queue_index < 0){
             die( sprintf( 'ERROR: Invalid id number for queue, aborting queue_id=%d', $this->queue_id ) );
         }
-        if( $this->check_concurrent_queue( $queue_index ) ){
-            die( "Aborting start, concurent queue exists" );
+        $concurrent = $this->check_concurrent_queue( $queue_index );
+        if( $concurrent ){
+            die( sprintf( "ERROR: aborting start of queue_id %d, concurent queue %d exists for index %d".PHP_EOL, $queue_id, $concurrent['queue_id'], $queue_index ) );
         }
-
         
-        if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'queue_index'=>$queue_index, 'status' => 'running' ) ) ){
-            $this->queue_id = $this->sql->insert_id();
+        if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
                 printf( 'Starting queue_id=%d index=%d'.PHP_EOL, $this->queue_id, $queue_index );
             }
@@ -301,7 +338,7 @@ class Queue {
         }
     }
 
-    function start_queues( ){
+    function start_queues(){
         for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             $reason = NULL;
@@ -323,7 +360,9 @@ class Queue {
 
             if( $queue_need_start ){
                 printf( 'START:   %s'.PHP_EOL, $description);
-                $this->exec_queue( $queue_index );
+                
+                $queue_id = $this->create_queue( $queue_index );
+                $this->exec_queue( $queue_index, $queue_id );
             }else{
                 printf( 'RUNNING: %s'.PHP_EOL, $description);
             }
@@ -340,10 +379,10 @@ class Queue {
             }else{
                 if( $this->heartbeat_has_timedout( $heartbeat ) ){
                     $rv = sprintf( 'Queue %d [%d]: heartbeat timed out %d (at %s)',
-                            $queue_index,
-                            $heartbeat['queue_id'],
-                            abs(time() - intval($heartbeat['last_heartbeat'])),
-                            $heartbeat['heartbeat_ts']  );
+                                   $queue_index,
+                                   $heartbeat['queue_id'],
+                                   abs(time() - intval($heartbeat['last_heartbeat'])),
+                                   $heartbeat['heartbeat_ts']  );
                 }else if( $this->heartbeat_is_running( $heartbeat ) ){
                     $rv = sprintf( 'Queue %d [%d]: running. pid=%d last=%d (at %s)', $queue_index, $heartbeat['queue_id'], $heartbeat['queue_pid'],
                                    abs(time() - intval($heartbeat['last_heartbeat'])), $heartbeat['heartbeat_ts'] );
@@ -371,14 +410,35 @@ class Queue {
         }
     }
 
-    
+
+    function find_running_queues(){
+        $processes = array();
+        exec( '/bin/ps -o pid,command', $output );
+        foreach( $output as $line ){
+            $info = explode( ' ', $line, 2 );
+            if( intval( $info[0] ) > 0 ){
+
+                if( strpos( $info[1], 'php runqueue.php') !== FALSE ){
+                    printf( 'pid=%d command=%s'.PHP_EOL, intval($info[0]), $info[1] );
+                    $processes[ $info[0] ] = $info[1];
+                }
+            }
+        }
+
+        return( $processes );
+    }
 
     function list_queues( ){
+        
         for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             $reason = NULL;
             
             $heartbeat = $this->heartbeat_last( $queue_index );
+            if( isset( $heartbeat['queue_pid'] ) ){
+
+
+            }
             $desc = $this->heartbeat_queue_description( $queue_index, $heartbeat );
             if( isset( $heartbeat['queue_id'] ) ){
                 $done = $this->queue_task_status( $heartbeat['queue_id'], $queue_index );
@@ -406,12 +466,12 @@ class Queue {
         }
     }
 
-    function exec_queue( $queue_index ){
+    function exec_queue( $queue_index, $queue_id ){
         if( is_writable( 'log' ) ){
-            $log = sprintf( 'log/queue_%d_%s', $queue_index, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php runqueue.php %d  > %s.log 2>&1 &', $queue_index, $log );
+            $log = sprintf( 'log/queue_%d_for_%d', $queue_id, $queue_index );
+            $command = sprintf( 'php runqueue.php %d  > %s.log 2>&1 &', $queue_id, $log );
         }else{
-            $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_index );
+            $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_id );
         }
         if( $this->verbose ){
             printf( 'Exec %s'.PHP_EOL, $command );
