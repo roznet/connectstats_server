@@ -20,8 +20,12 @@ if( isset( $argv[1] ) ){
         $data = $process->query_file( NULL, NULL, $file_id );
 
         if( strlen( $data ) ){
-            $fit = new adriangibbons\phpFITFileAnalysis( $data, array( 'input_is_data' => true ) );
-            $process->fit_extract( $file_id, $fit->data_mesgs );
+            try {
+                $fit = new adriangibbons\phpFITFileAnalysis( $data, array( 'input_is_data' => true ) );
+                $process->fit_extract( $file_id, $fit->data_mesgs );
+            }catch(Exception $e ){
+                printf( "ERROR: can't process fit file for id %d. Error: %s", $file_id, $e->getMessage() );
+            }
         }
     }
 }
