@@ -281,6 +281,9 @@ class GarminProcess {
         if( isset($_GET['verbose']) && $_GET['verbose']==1){
             $this->set_verbose( true );
         }
+        if( isset($_ENV['ROZNET_VERBOSE']) && intval($_ENV['ROZNET_VERBOSE'])==1){
+            $this->set_verbose( true );
+        }
 
         include( 'config.php' );
         $this->api_config = $api_config;
