@@ -1516,7 +1516,7 @@ class GarminProcess {
     }
 
     function maintenance_process_old_cache($table,$limit=20){
-        $query = sprintf( 'select cache_id,ts,started_ts,timediff(now(),started_ts),now() from cache_%s WHERE processed_ts is null AND timediff(now(),started_ts)>3600 order by started_ts limit %d',
+        $query = sprintf( 'SELECT cache_id,ts,started_ts,timediff(now(),started_ts),now() FROM cache_%s WHERE processed_ts is null AND timediff(now(),started_ts)>3600 ORDER BY started_ts DESC LIMIT %d',
                           $table, $limit );
         $res = $this->sql->query_as_array( $query );
         foreach( $res as $row ){
