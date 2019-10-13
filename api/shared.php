@@ -746,7 +746,7 @@ class GarminProcess {
     
     function exec_callback_cmd( $table, $command_ids ){
         if( count($command_ids) > 25 ){
-            $chunks = array_chunk( $command_ids, (int)ceil(count($command_ids)/5 ) );
+            $chunks = array_chunk( $command_ids, 10 ) );
         }else{
             $chunks = array( $command_ids );
         }
@@ -1517,7 +1517,7 @@ class GarminProcess {
                           $table, $limit );
         $res = $this->sql->query_as_array( $query );
         foreach( $res as $row ){
-            $this->exec_activities_cmd( $table, $last_insert );
+            $this->exec_activities_cmd( $table, $row['cache_id'] );
         }
     }
     
