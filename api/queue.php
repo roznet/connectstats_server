@@ -84,7 +84,7 @@ class Queue {
     }
     
     function ensure_schema() {
-        $schema_version = 1;
+        $schema_version = 2;
         $schema = array(
             "tasks" => array(
                 'task_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -104,7 +104,8 @@ class Queue {
                 'queue_pid' => 'BIGINT(20) UNSIGNED DEFAULT NULL',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
                 'heartbeat_ts' => 'DATETIME',
-                'status' => 'VARCHAR(16)'
+                'status' => 'VARCHAR(16)',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP'
             )
         );
         $create = false;
@@ -231,6 +232,7 @@ class Queue {
     
     function run( int $queue_index ){
         $this->ensure_schema();
+        $this->verbose = true;
         if( $this->verbose ){
             print ( 'starting'.PHP_EOL );
         }
