@@ -226,22 +226,22 @@ class Queue {
             isset( $heartbeat['heartbeat_ts'] ) &&
             abs(time() - intval($heartbeat['last_heartbeat'])) < $this->queue_timeout ){
             $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:concurrent', heartbeat_ts = NULL WHERE queue_id = %d", $this->queue_id ) );
-            die( 'concurrent queue exist' );
+            die( 'ERROR: concurrent queue exist, aborting' );
         }
     }
     
     function run( int $queue_index ){
         $this->ensure_schema();
         $this->verbose = true;
-        if( $this->verbose ){
-            print ( 'starting'.PHP_EOL );
-        }
         if( $queue_index >= $this->queue_count || $queue_index < 0){
-            die( 'Invalid id number for queue' );
+            die( 'ERROR: Invalid id number for queue, aborting' );
         }
 
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'queue_index'=>$queue_index, 'status' => 'running' ) ) ){
             $this->queue_id = $this->sql->insert_id();
+            if( $this->verbose ){
+                printf( 'Starting queue_id=%d index=%d'.PHP_EOL, $this->queue_id, $queue_index );
+            }
             while( true ){
                 $this->check_concurrent_queue( $queue_index );
                 $this->update_heartbeat( $queue_index );
