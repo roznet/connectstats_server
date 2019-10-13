@@ -19,6 +19,8 @@ if( isset( $argv[2] ) ){
 }
 $process->set_verbose(true);
 $process->ensure_schema();
+$process->maintenance_process_old_cache( 'activities', $limit );
+$process->maintenance_process_old_cache( 'fitfiles', $limit );
 $process->maintenance_fix_missing_callback($user_id, $limit);
 $process->maintenance_link_activity_files($user_id, $limit);
 ?>

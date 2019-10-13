@@ -1512,6 +1512,15 @@ class GarminProcess {
         }
     }
 
+    function maintenance_process_old_cache($table,$limit=20){
+        $query = sprintf( 'select cache_id,ts,started_ts,timediff(now(),started_ts),now() from cache_%s WHERE processed_ts is null AND timediff(now(),started_ts)>3600 order by started_ts limit %d',
+                          $table, $limit );
+        $res = $this->sql->query_as_array( $query );
+        foreach( $res as $row ){
+            $this->exec_activities_cmd( $table, $last_insert );
+        }
+    }
+    
     // This will update cs_user_id in table by matching userId from the service data
     function maintenance_link_cs_user($table,$limit=20){
         $this->ensure_schema();
