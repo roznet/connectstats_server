@@ -183,15 +183,23 @@ class Queue {
             if( is_dir( $row['task_cwd'] ) ){
                 chdir( $row['task_cwd' ] );
             }
+            $time = time();
             exec( $command, $output, $status );
+            $elapsed = time() - $time;
             if( $this->verbose ){
-                printf( 'DONE: %s'.PHP_EOL, $command );
+                printf( 'DONE: (%d secs) %s'.PHP_EOL, $elapsed, $command );
+            }
+            if( $elapsed > 30 ){
+                // Restart new connection to avoid time out
+                $this->sql = new queue_sql();
             }
             if( $log && file_exists( $log ) && filesize( $log )== 0 ){
                 unlink( $log );
             }
             $query = sprintf( 'UPDATE tasks SET finished_ts = FROM_UNIXTIME(%d), queue_id = %d, exec_status = %d WHERE task_id = %d', time(), $this->queue_id, $status, $task_id);
-            $this->sql->execute_query( $query );
+            if( !$this->sql->execute_query( $query ) ){
+                printf( "ERROR: %s %s".PHP_EOL, $query, $this->sql->lasterror );
+            }
             $this->completed += 1;
             $this->last_completed_ts = time();
             if( $this->verbose ){
@@ -272,6 +280,7 @@ class Queue {
             $execution_mode = false;
             
             while( true ){
+
                 if( $this->check_concurrent_queue( $queue_index ) ){
                     $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:concurrent', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
                     die( 'ERROR: concurrent queue exist, aborting' );
