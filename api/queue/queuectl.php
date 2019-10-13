@@ -29,6 +29,8 @@ error_reporting(E_ALL);
 include_once( '../queue.php');
 
 $queue = new Queue();
+$queue->verbose = true;
+#$queue->sql->verbose = true;
 
 $queue->ensure_commandline($argv??NULL,1);
 
@@ -36,6 +38,8 @@ if( $argv[1] == 'kill' ){
     $queue->kill_queues();
 }else if( $argv[1] == 'start' ){
     $queue->start_queues();
+}else if( $argv[1] == 'list' ){
+    $queue->list_queues();
 }else if( $argv[1] == 'add' && count( $argv ) > 2){
     $queue->add_task( $argv[2], getcwd() );
 }else if( $argv[1] == 'run' && count( $argv ) > 2 ){
