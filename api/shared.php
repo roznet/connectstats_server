@@ -746,7 +746,7 @@ class GarminProcess {
     
     function exec_callback_cmd( $table, $command_ids ){
         if( count($command_ids) > 25 ){
-            $chunks = array_chunk( $command_ids, 10 ) );
+            $chunks = array_chunk( $command_ids, 10 );
         }else{
             $chunks = array( $command_ids );
         }
