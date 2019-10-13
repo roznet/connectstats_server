@@ -184,6 +184,9 @@ class Queue {
                 chdir( $row['task_cwd' ] );
             }
             exec( $command, $output, $status );
+            if( $this->verbose ){
+                printf( 'DONE: %s'.PHP_EOL, $command );
+            }
             if( $log && file_exists( $log ) && filesize( $log )== 0 ){
                 unlink( $log );
             }
@@ -191,6 +194,9 @@ class Queue {
             $this->sql->execute_query( $query );
             $this->completed += 1;
             $this->last_completed_ts = time();
+            if( $this->verbose ){
+                printf( 'MARK: %s'.PHP_EOL, $query );
+            }
             $done = true;
         }
         return $done;
@@ -256,12 +262,15 @@ class Queue {
         if( $this->check_concurrent_queue( $queue_index ) ){
             die( "Aborting start, concurent queue exists" );
         }
+
         
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'queue_index'=>$queue_index, 'status' => 'running' ) ) ){
             $this->queue_id = $this->sql->insert_id();
             if( $this->verbose ){
                 printf( 'Starting queue_id=%d index=%d'.PHP_EOL, $this->queue_id, $queue_index );
             }
+            $execution_mode = false;
+            
             while( true ){
                 if( $this->check_concurrent_queue( $queue_index ) ){
                     $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:concurrent', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
@@ -269,7 +278,15 @@ class Queue {
                 }
                 $this->update_heartbeat( $queue_index );
                 if( ! $this->run_one_task( $queue_index ) ){
+                    if( $execution_mode ){
+                        $execution_mode = false;
+                        if( $this->verbose ){
+                            printf( 'WAIT: no more tasks, starting sleep cycle'.PHP_EOL );
+                        }
+                    }
                     sleep( $this->queue_sleep );
+                }else{
+                    $execution_mode = true;
                 }
             }
         }
@@ -290,7 +307,7 @@ class Queue {
                         printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
                         exec( $cmd );
                     }
-                }else{
+                }else if( $this->heartbeat_is_running( $heartbeat ) ){
                     $queue_need_start = false;
                 }
             }
