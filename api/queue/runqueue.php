@@ -31,7 +31,10 @@ include_once( '../queue.php');
 $queue = new Queue();
 
 $queue->ensure_commandline($argv??NULL,1);
-
-$queue->run(intval($argv[1]));
+try {
+    $queue->run(intval($argv[1]));
+} catch (Exception $e ){
+    printf( "ERROR: queue failed with exception: %s".PHP_EOL, $e->getMessage());
+}
 
 ?>
