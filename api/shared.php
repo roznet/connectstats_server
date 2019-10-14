@@ -122,7 +122,7 @@ class StatusCollector {
             if( ! $sql->table_exists( $error_table ) ){
                 $sql->create_or_alter( $error_table, array(
                     'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
-                    'json' => 'TEXT',
+                    'json' => 'MEDIUMTEXT',
                     'message' => 'TEXT',
                     'user_agent' => 'TEXT',
                     'remote_addr' => 'TEXT'
@@ -351,14 +351,14 @@ class GarminProcess {
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'started_ts' => 'DATETIME',
                 'processed_ts' => 'DATETIME',
-                'json'=>'TEXT'
+                'json'=>'MEDIUMTEXT'
             ),
             "cache_fitfiles" => array(
                 'cache_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'started_ts' => 'DATETIME',
                 'processed_ts' => 'DATETIME',
-                'json'=>'TEXT'
+                'json'=>'MEDIUMTEXT'
             ),
             "activities" =>  array(
                 'activity_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -1822,7 +1822,7 @@ class GarminProcess {
         $file_url = sprintf( '%s://%s/%s?token_id=%d',
                              $url_info['scheme'],
                              $url_info['host'],
-                             str_replace( 'api/connecstats/search', 'api/connectstats/file', $url_info['path'] ),
+                             str_replace( 'api/connectstats/search', 'api/connectstats/file', $url_info['path'] ),
                              $url_params['token_id']
         );
         
