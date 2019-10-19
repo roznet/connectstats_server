@@ -469,7 +469,7 @@ class Queue {
         $mypid = getmypid();
         
         $processes = false;
-        exec( '/bin/ps -o pid,command', $output, $rv );
+        exec( '/bin/ps -a -o pid,command', $output, $rv );
 
         if( $rv == 0 ){
             $processes = array();
