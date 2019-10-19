@@ -326,7 +326,7 @@ class Queue {
         
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
-                printf( 'Starting queue_id=%d index=%d'.PHP_EOL, $this->queue_id, $queue_index );
+                printf( 'Starting queue_id=%d index=%d pid=%d'.PHP_EOL, $this->queue_id, $queue_index, getmypid() );
             }
             $execution_mode = false;
             
