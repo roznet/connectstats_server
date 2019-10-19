@@ -241,6 +241,11 @@ class Queue {
      */
     function heartbeat_last( int $queue_index ){
         $rv = $this->sql->query_first_row( sprintf( 'SELECT *, UNIX_TIMESTAMP(heartbeat_ts) AS last_heartbeat FROM queues WHERE queue_index = %d ORDER BY heartbeat_ts DESC LIMIT 1', $queue_index ) );
+        
+        if( isset( $rv['queue_id'] ) && isset( $this->processes[ $rv['queue_id'] ] ) ){
+            $rv[ 'running_pid' ] = $this->processes[$rv['queue_id']];
+        }
+
         return( $rv );
     }
 
@@ -339,6 +344,8 @@ class Queue {
     }
 
     function start_queues(){
+        $this->find_running_queues();
+        
         for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             $reason = NULL;
@@ -384,7 +391,12 @@ class Queue {
                                    abs(time() - intval($heartbeat['last_heartbeat'])),
                                    $heartbeat['heartbeat_ts']  );
                 }else if( $this->heartbeat_is_running( $heartbeat ) ){
-                    $rv = sprintf( 'Queue %d [%d]: running. pid=%d last=%d (at %s)', $queue_index, $heartbeat['queue_id'], $heartbeat['queue_pid'],
+                    if( isset( $heartbeat['running_pid'] ) ){
+                        $pidstatus = 'live';
+                    }else{
+                        $pidstatus = 'dead';
+                    }
+                    $rv = sprintf( 'Queue %d [%d]: running. pid=%d[%s] last=%d (at %s)', $queue_index, $heartbeat['queue_id'], $heartbeat['queue_pid'], $pidstatus,
                                    abs(time() - intval($heartbeat['last_heartbeat'])), $heartbeat['heartbeat_ts'] );
                 }else{
                     print_r( $heartbeat );
@@ -411,34 +423,47 @@ class Queue {
     }
 
 
-    function find_running_queues(){
-        $processes = array();
-        exec( '/bin/ps -o pid,command', $output );
-        foreach( $output as $line ){
-            $info = explode( ' ', $line, 2 );
-            if( intval( $info[0] ) > 0 ){
+    function find_running_queues( $display = false){
 
-                if( strpos( $info[1], 'php runqueue.php') !== FALSE ){
-                    printf( 'pid=%d command=%s'.PHP_EOL, intval($info[0]), $info[1] );
-                    $processes[ $info[0] ] = $info[1];
+        $processes = false;
+        exec( '/bin/ps -o pid,command', $output, $rv );
+
+        if( $rv == 0 ){
+            $processes = array();
+            foreach( $output as $line ){
+                preg_match( '/([0-9]+) +php runqueue.php ([0-9]+)/', $line, $matches );
+                if( $matches ){
+                    $pid = intval($matches[1]);
+                    $queue_id = intval($matches[2]);
+                    $processes[ $queue_id ] = $pid;
+                    if( $display ) {
+                        printf( 'Queue %d: pid=%d'.PHP_EOL, $queue_id, $pid );
+                    }
                 }
             }
+            $this->processes = $processes;
+        }else{
+            if( isset( $this->processes ) ){
+                unset( $this->processes );
+            }
+            if( $display ){
+                printf( "Couldn't run /bin/ps ret = %s".PHP_EOL, $rv );
+            }
         }
-
         return( $processes );
     }
 
     function list_queues( ){
+
+        $this->find_running_queues();
         
         for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             $reason = NULL;
             
             $heartbeat = $this->heartbeat_last( $queue_index );
-            if( isset( $heartbeat['queue_pid'] ) ){
-
-
-            }
+            $queue_id = $heartbeat['queue_id'];
+            
             $desc = $this->heartbeat_queue_description( $queue_index, $heartbeat );
             if( isset( $heartbeat['queue_id'] ) ){
                 $done = $this->queue_task_status( $heartbeat['queue_id'], $queue_index );

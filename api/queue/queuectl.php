@@ -34,18 +34,34 @@ $queue->verbose = true;
 
 $queue->ensure_commandline($argv??NULL,1);
 
-if( $argv[1] == 'kill' ){
-    $queue->kill_queues();
-}else if( $argv[1] == 'start' ){
-    $queue->start_queues();
-}else if( $argv[1] == 'list' ){
-    $queue->list_queues();
-}else if( $argv[1] == 'ps' ){
-    $queue->find_running_queues();
-}else if( $argv[1] == 'add' && count( $argv ) > 2){
-    $queue->add_task( $argv[2], getcwd() );
-}else if( $argv[1] == 'run' && count( $argv ) > 2 ){
-    $queue->run($argv[2]);
-}
+$options = getopt( 'n', [], $n );
+$remain = array_slice( $argv, $n );
 
+if( count( $remain ) > 0 ){
+    $command = $remain[0];
+    $args = array_slice( $remain, 1 );
+
+    switch( $command ){
+    case 'kill':
+        $queue->kill_queues();
+        break;
+    case 'start':
+        $queue->start_queues();
+        break;
+    case 'list':
+        $queue->list_queues();
+        break;
+    case 'ps':
+        $queue->find_running_queues(true);
+        break;
+    case 'add':
+        $queue->add_task( $args[0], getcwd() );
+        break;
+    case 'run':
+        $queue->run($args[0]);
+        break;
+    default:
+        
+    }
+}
 ?>
