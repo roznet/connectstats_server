@@ -474,7 +474,7 @@ class Queue {
         if( $rv == 0 ){
             $processes = array();
             foreach( $output as $line ){
-                preg_match( '/([0-9]+) +[\/a-z0-9]*php runqueue.php ([0-9]+)/', $line, $matches );
+                preg_match( '/([0-9]+) +[-\/a-z0-9]*php runqueue.php ([0-9]+)/', $line, $matches );
                 if( $matches ){
                     $pid = intval($matches[1]);
                     $queue_id = intval($matches[2]);
