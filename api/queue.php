@@ -469,7 +469,7 @@ class Queue {
         $mypid = getmypid();
         
         $processes = false;
-        exec( '/bin/ps -a -o pid,command', $output, $rv );
+        exec( '/bin/ps -ax -o pid,command', $output, $rv );
 
         if( $rv == 0 ){
             $processes = array();
@@ -552,7 +552,7 @@ class Queue {
     function exec_queue( $queue_index, $queue_id ){
         if( is_writable( 'log' ) ){
             $log = sprintf( 'log/queue_%d_for_%d', $queue_id, $queue_index );
-            $command = sprintf( 'php runqueue.php %d  > %s.log 2>&1 &', $queue_id, $log );
+            $command = sprintf( 'nohup php runqueue.php %d  > %s.log 2>&1 &', $queue_id, $log );
         }else{
             $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_id );
         }
