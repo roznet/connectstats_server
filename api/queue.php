@@ -388,10 +388,9 @@ class Queue {
                     $this->find_running_queues();
 
                     if( isset( $this->processes ) ){
-                        $new_queue_pid = $this->processes[$queue_id];
                         $this->find_running_queues();
 
-                        if( isset( $this->processes ) ){
+                        if( isset( $this->processes[ $queue_id ] ) ){
                             $new_queue_pid = $this->processes[ $queue_id ];
                             
                             $this->sql->execute_query( sprintf( "UPDATE queues SET queue_pid = %d, status = 'restarted' WHERE queue_id = %d", $new_queue_pid, $heartbeat['queue_id'] ) );
