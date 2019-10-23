@@ -35,6 +35,7 @@ $required_fields = array(
 $unique_keys = array( 'startTimeInSeconds', 'summaryId' );
 
 $process = new GarminProcess();
+$process->set_verbose(true);
 
 $process->ensure_commandline($argv??NULL);
 if( isset( $argv[1] ) ){
@@ -42,6 +43,6 @@ if( isset( $argv[1] ) ){
         print( 'error' );
     }
 }
-printf( 'Exiting'.PHP_EOL );
+printf( 'EXIT: Success'.PHP_EOL );
 exit();
 ?>

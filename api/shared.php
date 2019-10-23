@@ -319,6 +319,9 @@ class GarminProcess {
             header('HTTP/1.1 403 Forbidden');
             die;
         }
+        if( $this->verbose ){
+            printf( 'STARTING: %s'.PHP_EOL, implode( ' ', $argv ) );
+        }
         return true;
     }
 
