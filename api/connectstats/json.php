@@ -73,5 +73,7 @@ if( isset( $_GET['token_id'] ) ){
         header(sprintf('Content-Disposition: attachment; filename=%s', $filename ) );
     }
     print( json_encode($data) );
+    $process->record_usage( $paging );
 }
+
 ?>

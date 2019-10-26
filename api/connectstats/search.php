@@ -59,5 +59,6 @@ if( isset( $_GET['token_id'] ) ){
     }else{
         $process->query_activities( $paging );
     }
+    $process->record_usage( $paging );
 }
 ?>

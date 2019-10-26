@@ -114,7 +114,7 @@ class StatusCollector {
     function hasError() {
         return( count( $this->messages ) > 0 );
     }
-    
+
     function record($sql,$rawdata) {
         if(  $sql && $this->table !== NULL ){
             $error_table = sprintf( "error_%s", $this->table );
@@ -201,6 +201,7 @@ class Paging {
         }
 
         $token = $this->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
+
         if( isset( $token['cs_user_id' ] ) ){
             $this->cs_user_id = intval($token['cs_user_id']);
         }else{
@@ -328,8 +329,16 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 4;
+        $schema_version = 5;
         $schema = array(
+            "usage" => array(
+                'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'cs_user_id' => 'BIGINT(20) UNSIGNED',
+                'status' => 'INT UNSIGNED',
+                'REQUEST_URI' => 'VARCHAR(256)',
+                'SCRIPT_NAME' => 'VARCHAR(256)',
+            ),
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'userId' => 'VARCHAR(128)',
@@ -1782,6 +1791,7 @@ class GarminProcess {
         
         print( json_encode( $rv ) );
 
+        
         return $rv;
     }
 
@@ -1864,6 +1874,19 @@ class GarminProcess {
             }
         }
         return $json;
+    }
+
+    function record_usage( $paging, $status = 0 ){
+
+        if( isset( $paging->cs_user_id ) ){
+            $row = array( 'cs_user_id' => $paging->cs_user_id, 'status' => $status );
+            foreach( [ 'REQUEST_URI', 'SCRIPT_NAME' ] as $key ){
+                if( isset( $_SERVER[$key] ) ){
+                    $row[$key] = $_SERVER[$key];
+                }
+            }
+        }
+        $this->sql->insert_or_update( 'usage', $row );
     }
 };
     
