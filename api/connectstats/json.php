@@ -74,6 +74,7 @@ if( isset( $_GET['token_id'] ) ){
     }
     print( json_encode($data) );
     $process->record_usage( $paging );
+    
 }
 
 ?>

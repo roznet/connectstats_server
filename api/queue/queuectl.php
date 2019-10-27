@@ -55,7 +55,13 @@ if( count( $remain ) > 0 ){
         $queue->find_running_queues(true);
         break;
     case 'add':
-        $queue->add_task( $args[0], getcwd() );
+        $not_before_ts = NULL;
+        if( isset($args[1] ) ){
+            if( intval( $args[1] ) > 0 ){
+                $not_before_ts = time() + intval( $args[1] );
+            }
+        }
+        $queue->add_task( $args[0], getcwd(), $not_before_ts );
         break;
     case 'run':
         $queue->run($args[0]);
@@ -64,4 +70,5 @@ if( count( $remain ) > 0 ){
         
     }
 }
+
 ?>
