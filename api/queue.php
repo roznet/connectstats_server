@@ -370,6 +370,7 @@ class Queue {
                         printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
                         exec( $cmd );
                     }
+                    $queue_need_restart = true;
                 }else if( $this->heartbeat_is_running( $heartbeat ) ){
                     if( $this->heartbeat_process_is_dead( $heartbeat ) ){
                         $queue_need_restart = true;
