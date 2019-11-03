@@ -17,7 +17,9 @@ if( $_GET['table'] ){
                    'tokens' => 'token_id',
                    'users' => 'cs_user_id',
                    'weather' => 'file_id',
-                   'fitsession' => 'file_id'
+                   'fitsession' => 'file_id',
+                   'cache_activities' => 'cache_id',
+                   'cache_fitfiles' => 'cache_id'
     );
 
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){
