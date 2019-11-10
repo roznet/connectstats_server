@@ -592,8 +592,12 @@ class GarminProcess {
                         $last_insert = $stmt->insert_id;
                     }
                     $stmt->close();
+                }else{
+                    $this->status->error(  "Execute failed: (" . $stmt->errno . ") " . $stmt->error );
+                    if( $this->verbose ){
+                        printf( 'ERROR: %s [%s] '.PHP_EOL,  $stmt->error, $query);
+                    }
                 }
-
             }
         }
         if( $success && $last_insert ){
@@ -708,23 +712,23 @@ class GarminProcess {
             $queue = new Queue();
             $queue->add_task( $command, getcwd() );
             if( $this->verbose ){
-                printf( 'Queue Task: %s'.PHP_EOL, $command );
+                printf( 'Queue Task Add: %s'.PHP_EOL, $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
                 $file_lock = 'log/start_lock';
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
                     if( $this->verbose ){
-                            printf( 'check start queue %d'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                        printf( 'Queue Start Check: Last start %d secs ago'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
                     }
                     touch( $file_lock );
                     exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
                 }else{
                     if( $this->verbose ){
-                        printf( 'wait queue %d'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                        printf( 'Queue Start Skip: last start %d secs ago'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
                     }
                 }
             }else{
-                printf( 'cant start queue %s', getcwd() );
+                printf( 'ERROR: cant start queue %s', getcwd() );
             }
         }else{
             if( $this->verbose ){
@@ -1103,7 +1107,11 @@ class GarminProcess {
         if( $this->verbose ){
             printf( 'EXEC: %s'.PHP_EOL, $command );
         }
-        system( $command );
+        $retval = 0;
+        system( $command, $retval );
+        if( $retval != 0 && $this->verbose){
+            printf( 'ERROR: ret=%d for %s'.PHP_EOL, $retval, $command );
+        }
     }
     
     function file_callback_one( $table, $cbid ){

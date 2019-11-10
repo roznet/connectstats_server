@@ -91,9 +91,12 @@ class sql_helper {
                         $this->fieldsInfo[ $row_f[ 'Field' ] ] = $row_f[ 'Type' ];
                         $this->tableInfo[ $table ][ $row_f[ 'Field' ] ] = $row_f[ 'Type' ];
                     };		
-                }}else{			    print( "empty db" );
+                }
+            }else{
+                if( $this->verbose ){
+                    print( "INFO: empty db".PHP_EOL );
+                }
             }
-
 		};
 	}
     //

@@ -3,14 +3,17 @@
 include_once( '../api/shared.php' );
 
 
-$keys = array( 'activities' => 'activity_id',
-               'backfills' => 'backfill_id',
-               'assets' => 'asset_id',
-               'fitfiles' => 'file_id',
-               'tokens' => 'token_id',
-	       'users' => 'cs_user_id',
-	       'weather' => 'file_id',
-	       'fitsession' => 'file_id'
+$keys = array(
+#    'activities' => 'activity_id',
+#    'backfills' => 'backfill_id',
+#    'assets' => 'asset_id',
+#    'fitfiles' => 'file_id',
+#    'weather' => 'file_id',
+#    'fitsession' => 'file_id'
+    'cache_activities' => 'cache_id',
+    'cache_fitfiles' => 'cache_id',
+    'tokens' => 'token_id',
+    'users' => 'cs_user_id',
 );
 
 $process = new GarminProcess();

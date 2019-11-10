@@ -74,8 +74,12 @@ class queue_sql extends sql_helper {
  */
 class Queue {
 
-    function __construct(){
-        include( 'config.php' );
+    function __construct($input = NULL){
+        if( $input ){
+            $api_config = $input;
+        }else{
+            include( 'config.php' );
+        }
 
         $this->sql = new queue_sql( $api_config );
         $this->queue_count = 5;
@@ -97,6 +101,11 @@ class Queue {
         
         $this->completed = 0;
         $this->last_completed_ts = NULL;
+    }
+
+    function set_verbose( $flag ){
+        $this->verbose = $flag;
+        $this->sql->verbose = $flag;
     }
     
     function ensure_schema() {

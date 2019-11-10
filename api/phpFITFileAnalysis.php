@@ -1541,7 +1541,9 @@ class phpFITFileAnalysis
         
         // Remove duplicate timestamps
         if (isset($this->data_mesgs['record']['timestamp'])) {
-            $this->data_mesgs['record']['timestamp'] = array_unique($this->data_mesgs['record']['timestamp']);
+            if( is_array( $this->data_mesgs['record']['timestamp'] ) ){
+                $this->data_mesgs['record']['timestamp'] = array_unique($this->data_mesgs['record']['timestamp']);
+            }
         }
         
         // Return if no option set

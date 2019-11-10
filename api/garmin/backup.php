@@ -28,6 +28,8 @@ if( $_GET['table'] ){
         $done = $process->maintenance_export_table( $table, $key, $key_start );
     }
 }
+// If _GET['cache'] = table (fitfiles|activities) _GET['cache_id'] = start cache_id _GET['n'] => max number
+// TODO:
 if( ! $done ){
     header( 'HTTP/1.1 400 Bad Request' );
     die;
