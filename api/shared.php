@@ -765,7 +765,7 @@ class GarminProcess {
     
     function exec_callback_cmd( $table, $command_ids ){
         if( count($command_ids) > 25 ){
-            $chunks = array_chunk( $command_ids, 10 );
+            $chunks = array_chunk( $command_ids, 5 );
         }else{
             $chunks = array( $command_ids );
         }
@@ -1020,6 +1020,16 @@ class GarminProcess {
         return ( $rv[1] == 70 && $rv[2] == 73 && $rv[3] == 84 );
     }
 
+
+    function should_fit_extract( $file_id ,$max_hours ){
+        $query = sprintf( 'select file_id,startTimeInSeconds FROM fitfiles WHERE file_id = %d', $file_id );
+        $should = $this->sql->query_first_row( $query );
+        if( isset($should['startTimeInSeconds']) && abs( microtime(true) - (floatval($should['startTimeInSeconds']) ) ) < 3600.0 * $max_hours ){
+            return true;
+        }
+        return false;
+    }
+    
     /**
      *  Extract and save information from downloaded fit files
      *  if darkSkyNet key exists, try to download weather
