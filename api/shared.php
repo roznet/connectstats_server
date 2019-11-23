@@ -680,6 +680,8 @@ class GarminProcess {
                         }
                         if( $this->status->success() ){
                             if( $callbackURL ) {
+                                // If it has a callback URL, find out the file_id for matching summaryId so we can
+                                // later start a command to get the data from the callback url
                                 $found = $this->sql->query_first_row( sprintf( 'SELECT file_id FROM `%s` WHERE summaryId = %s', $table, $row['summaryId'] ) );
                                 if( $found ){
                                     array_push( $command_ids, $found['file_id'] );
@@ -1106,6 +1108,7 @@ class GarminProcess {
      *    This function is called in the background
      *    It will query the Garmin API for each file that needs to be downloaded
      *    and if necessary will extract information from the fit file
+     *    will be called for table fitfiles
      */
     function run_file_callback( string $table, array $cbids ){
         $this->ensure_schema();
@@ -1129,7 +1132,7 @@ class GarminProcess {
         $save_to_file = false;
         
         $this->status->clear('assets');
-        
+
         $query = sprintf( "SELECT * FROM %s WHERE file_id = %s", $table, $cbid );
         $row = $this->sql->query_first_row( $query );
         if( ! $row ){

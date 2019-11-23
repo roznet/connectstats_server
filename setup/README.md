@@ -20,13 +20,106 @@ You should use an application that will let the user login to Garmin Health API 
 CREATE TABLE uat SELECT * FROM tokens;
 ```
 
-2. 
-
 ## Testing rerunning from another database/server
 
 This is a test to make sure rerunning the feed from garmin will work on a new code/new database.
 It will bring back the callback from garmin and try to rerun them locally.
 
-1. in the setup directory, run backup.php, this will sync the tokens and users, as well as the ping and push garmin sent
+1. in the setup directory, run backup.php, this will sync the tokens and users, as well as the ping and push garmin sent. This will create a backup from `url_backup_source` from config.php into the database pointed by `database` in config.php.
 2. in the api/garmin directory, you can rerun any push or ping processing manually by running `php runactivities XXX` where `XXX` is a cache_id from the cache_activities table or `php runfitfiles.php XXX` where `XXX` is a cache_id from the cache_fitfiles table
 3. 
+
+# Stats/Status queries
+
+## Number of queries by users
+
+```
+SELECT num AS total_queries, COUNT(cs_user_id) AS user_count FROM ( SELECT cs_user_id, count(*) as num FROM `usage` WHERE  ts > NOW() - INTERVAL 1 DAY GROUP BY cs_user_id ORDER BY NUM DESC ) AS table1 GROUP BY num
+```
+
+## Number of users by day
+
+```
+SELECT `date`, COUNT(cs_user_id) AS user_count FROM ( SELECT DATE(ts) as `date`,cs_user_id, count(*) as num FROM garmin_new.`usage` WHERE  ts > NOW() - INTERVAL 5 DAY GROUP BY cs_user_id, `date` ORDER BY NUM DESC ) AS table1 GROUP BY `date`;
+```
+
+## Number of pushed activities by day in the last week
+
+```
+SELECT count(*),DATE(ts) as `date` FROM cache_activities WHERE ts > NOW() - INTERVAL 1 WEEK GROUP BY DATE(ts);
+SELECT count(*),DATE(ts) as `date` FROM cache_fitfiles WHERE ts > NOW() - INTERVAL 1 WEEK GROUP BY DATE(ts);
+```
+
+## Number of tasks by day in the last week and max time to execute
+
+```
+SELECT DATE(ts) as `date`, count(*), MAX( time(finished_ts-started_ts) ), MAX( time(finished_ts-created_ts)) FROM tasks WHERE ts > NOW() - INTERVAL 1 WEEK GROUP BY `date`;
+```
+
+## task that took more than 30 seconds in the last week
+
+```
+SELECT task_id, queue_id, started_ts, finished_ts, timediff(finished_ts,started_ts) AS exec_time, task_command FROM tasks WHERE ts > NOW() - INTERVAL 1 WEEK AND SECOND(TIMEDIFF(finished_ts,started_ts) )> 30 ORDER BY exec_time DESC;
+```
+
+## number of use and time since first use by users
+
+```
+SELECT cs_user_id, MAX(ts) AS `last`, MIN(ts) AS `first`, TIMEDIFF(MAX(ts),MIN(ts)) AS `days`, COUNT(*) AS total FROM `usage` GROUP BY cs_user_id ORDER BY last DESC;
+```
+
+
+# Indexes and queries use beside primary index
+
+## Indexes
+
+```
+CREATE INDEX assets_file_id_index ON assets (file_id);
+
+CREATE INDEX fitfiles_startTimeInSeconds_index ON activities (startTimeInSeconds);
+CREATE INDEX activities_startTimeInSeconds_index ON activities (startTimeInSeconds);
+CREATE INDEX activities_cs_user_id ON activities (cs_user_id);
+```
+
+## user_info, authenticate_header()
+
+```
+SELECT * FROM tokens WHERE userAccessToken = '%s'
+SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'
+```
+
+## find file_id or activity_id from summaryId in `process()` 
+
+
+```
+SELECT file_id FROM `fitfiles` WHERE summaryId = %s
+```
+
+## Find asset_id for fitfile in file_callback_one
+
+```
+SELECT asset_id FROM assets WHERE file_id=%s AND tablename='%s'
+```
+
+## Maintenance after process
+
+```
+SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userAccessToken = '%s'
+SELECT activity_id FROM activities WHERE summaryId = '%s'
+UPDATE activities SET parent_activity_id = %d WHERE summaryId = %d
+SELECT userId FROM users WHERE userId = '$userId'
+```
+
+Link fitfiles and activities
+
+```
+SELECT * FROM `fitfiles` WHERE userId = '%s' AND startTimeInSeconds = %d
+SELECT * FROM `activities` WHERE userId = '%s' AND startTimeInSeconds = %d
+```
+
+## query_file
+
+
+
+## query_list
+

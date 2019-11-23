@@ -74,7 +74,6 @@ if( isset( $_GET['token_id'] ) ){
         }else if( isset( $_GET['debug'] ) && $_GET['debug'] == 1 ){
             printf( 'not data found'.PHP_EOL );
         }
-
     }
     $process->record_usage( $paging, $status );
 }
