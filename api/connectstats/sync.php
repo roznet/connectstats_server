@@ -24,44 +24,33 @@
  *  
  * -----------
  *
- * This entry point should be called to get access to a fit file for a given user
+ * This entry point should be called only for maintenance and backup
+ * It will need to be authenticated by the system token
  *
  * GET Parameters:
  * REQUIRED:
- *   token_id: the token_id returned after the user_register call
  * One of:
- *   activity_id: if the activity_id is provided, the file for that activity will be returned
- *   file_id: if the file_id is known, the file for that id is returned
+ *   summary_id: the summary id for the item to be retrieved
+ *   table: the table to retrieve
  */
 
 include_once('../shared.php' );
 
 $process = new GarminProcess();
-if( isset( $_GET['token_id'] ) ){
-    $token_id = intval($_GET['token_id']);
-    // Ensure that the call is authenticated for the corresponding tokent id
-    $process->authenticate_header($token_id);
-
-    $paging = new Paging( $_GET, $token_id, $process->sql );
-
-    if( isset( $paging->activity_id ) ){
-        $activity_id = intval( $paging->activity_id );
-        $filename = sprintf( 'act_%u.fit', $activity_id );
-    }else{
-        $activity_id = NULL;
-    }
-    if( isset( $paging->file_id ) ){
-        $file_id = intval($paging->file_id);
-        $filename = sprintf( 'file_%u.fit', $file_id );
-    }else{
-        $file_id = NULL;
-    }
-
-    $status = 1;
 
 
-    if( isset( $paging->cs_user_id ) && $paging->cs_user_id > 0 ){
+if( isset( $_GET['table'] ) ){
+    // Ensure that the call is authenticated with the system token
+    $process->authenticate_system_call();
+    
+    $paging = new Paging( $_GET, Paging::SYSTEM_TOKEN, $process->sql );
+    
+    $table = $_GET['table'];
+
+    if( $table == 'fitfiles' ){
         $data = $process->query_file( $paging );
+        $filename = sprintf( '%s.%s', $paging->filename_identifier(), $paging->activities_only_one() ? 'fit' : 'zip' );
+        
         if( $data ){
             if( isset( $_GET['debug'] ) && $_GET['debug'] == 1 ){
                 printf( 'fit file with %lu bytes'.PHP_EOL, strlen( $data ) );
@@ -72,9 +61,8 @@ if( isset( $_GET['token_id'] ) ){
                 $status = 0;
             }
         }else if( isset( $_GET['debug'] ) && $_GET['debug'] == 1 ){
-            printf( 'not data found'.PHP_EOL );
+            printf( 'no data found'.PHP_EOL );
         }
     }
-    $process->record_usage( $paging, $status );
 }
 ?>

@@ -162,9 +162,11 @@ class StatusCollector {
  *   - from_activity_id: will return only activities with a higher activity_id than `from_activity_id`
  */
 class Paging {
-
+    const SYSTEM_TOKEN = -1;
+    
     function __construct( $getparams, $token_id, $sql ){
         $this->sql = $sql;
+        $this->token_id = $token_id;
 
         if( isset( $getparams['start'] ) ){
             $this->start = intval( $getparams['start']);
@@ -200,31 +202,48 @@ class Paging {
             }
         }
 
-        $token = $this->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
+        if( isset( $getparams['summary_id'] ) ){
+            $this->summary_id = intval( $getparams['summary_id'] );
+        }
 
-        if( isset( $token['cs_user_id' ] ) ){
-            $this->cs_user_id = intval($token['cs_user_id']);
-        }else{
-            $this->cs_user_id = 0; // invalid user
+        if( $token_id != Paging::SYSTEM_TOKEN ){
+            $token = $this->sql->query_first_row( "SELECT cs_user_id FROM tokens WHERE token_id = $token_id" );
+
+            if( isset( $token['cs_user_id' ] ) ){
+                $this->cs_user_id = intval($token['cs_user_id']);
+            }else{
+                $this->cs_user_id = 0; // invalid user
+            }
         }
     }
 
     function activities_where(){
+        $conditions = array();
+
+        if( isset( $this->cs_user_id ) && $this->token_id != SYSTEM_TOKEN ){
+            array_push( $conditions, sprintf( 'activities.cs_user_id = %d', $this->cs_user_id ) );
+        }
+        
         if( isset( $this->activity_id ) ){
-            return sprintf( 'activities.cs_user_id = %d AND activities.activity_id = %d', $this->cs_user_id, $this->activity_id );
+            array_push( $conditions, sprintf( 'activities.activity_id = %d', $this->activity_id ) );
         }else if( isset( $this->from_activity_id ) ){
-               return sprintf( 'activities.cs_user_id = %d AND activities.activity_id >= %d', $this->cs_user_id, $this->from_activity_id );
+            array_push( $conditions, sprintf( 'activities.activity_id >= %d', $this->from_activity_id ) );
         }else if( isset( $this->summary_start_time_in_seconds ) && isset( $this->summary_end_time_in_seconds ) ){
-            return sprintf( 'activities.cs_user_id = %d AND activities.startTimeInSeconds >= %d AND activities.startTimeInSeconds < %d',
-                            $this->cs_user_id,
+            array_push( $conditions, sprintf( 'activities.startTimeInSeconds >= %d AND activities.startTimeInSeconds < %d',
                             $this->summary_start_time_in_seconds,
                             $this->summary_end_time_in_seconds
-            );
-        }else{
-            return sprintf( 'activities.cs_user_id = %d', $this->cs_user_id );
+            ) );
+        }else if( isset( $this->summary_id ) ){
+            array_push( $conditions, sprintf( "summaryId = '%d'", $this->summary_id ) );
         }
+        return implode( ' AND ', $conditions );
     }
 
+
+    function activities_only_one(){
+        return $this->limit ==1 || ( !isset( $this->summary_start_time_in_seconds ) );
+    }
+    
     function activities_paging(){
         if( isset( $this->start ) ){
             return sprintf( 'LIMIT %d OFFSET %d', $this->limit, $this->start );
@@ -234,17 +253,41 @@ class Paging {
             return '';
         }
     }
-
-    function activities_total_count(){
-        $query = sprintf( 'SELECT COUNT(json) FROM activities WHERE cs_user_id = %d', $this->cs_user_id );
-        $count = $this->sql->query_first_row( $query );
-        if( isset($count['COUNT(json)']) ){
-            return intval( $count['COUNT(json)'] );
+    
+    function filename_identifier(){
+        if( isset( $this->activity_id ) ){
+            return sprintf( '%d', $this->activity_id );
+        }else if( isset( $this->from_activity_id ) ){
+               return sprintf( '%d', $this->from_activity_id );
+        }else if( isset( $this->summary_start_time_in_seconds ) && isset( $this->summary_end_time_in_seconds ) ){
+            return sprintf( '%d_%d_%d',
+                            $this->cs_user_id,
+                            $this->summary_start_time_in_seconds,
+                            $this->summary_end_time_in_seconds-$this->summary_start_time_in_seconds
+            );
+        }else if( isset( $this->summary_id ) ){
+            return sprintf( "%d", $this->summary_id );
         }else{
-            return 0;
+            return sprintf( '%d', $this->cs_user_id );
         }
     }
 
+    function activities_total_count(){
+        if( ! isset( $this->activities_total_count ) ){
+            if( isset( $this->cs_user_id ) && $this->cs_user_id != Paging::SYSTEM_TOKEN ){
+                $query = sprintf( 'SELECT COUNT(json) FROM activities WHERE cs_user_id = %d', $this->cs_user_id );
+            }else{
+                $query = sprintf( 'SELECT COUNT(json) FROM activities' );
+            }
+            $count = $this->sql->query_first_row( $query );
+            if( isset($count['COUNT(json)']) ){
+                $this->activities_total_count = intval( $count['COUNT(json)'] );
+            }else{
+                $this->activities_total_count = 0;
+            }
+        }
+        return $this->activities_total_count;
+    }
 
     function json(){
         $count = $this->activities_total_count();
@@ -261,7 +304,14 @@ class Paging {
         return isset( $this->file_id );
     }
 
+    function summary_file_query() {
+        return isset( $this->summary_id );
+    }
+    
     function file_where(){
+        if( isset( $this->summary_id ) ){
+            return sprintf("summaryId = '%d'", $this->summary_id );
+        }
         return sprintf('file_id = %d', $this->file_id );
     }
 
@@ -825,14 +875,18 @@ class GarminProcess {
                 $reconmaps = $this->interpret_authorization_header( $reconstructed );
                 // Check if token id is consistent with the token id of the access token
 
-                if( $reconmaps['oauth_signature'] == $maps['oauth_signature'] ){
+                if( urldecode($reconmaps['oauth_signature']) == urldecode($maps['oauth_signature']) ){
                     $failed = false;
                 }
             }
         }
 
         if( $failed ){
-            header('HTTP/1.1 401 Unauthorized error');
+            if( $this->verbose ){
+                printf( 'ERROR: authorization failed'.PHP_EOL );
+            }else{
+                header('HTTP/1.1 401 Unauthorized error');
+            }
             die;
         }
     }
@@ -847,6 +901,16 @@ class GarminProcess {
      */
     function authenticate_header($token_id){
         $failed = true;
+
+        // This should never be called with system token
+        if( $token_id == Paging::SYSTEM_TOKEN ){
+            if( $this->verbose ){
+                printf( 'ERROR: authorization failed'.PHP_EOL );
+            }else{
+                header('HTTP/1.1 401 Unauthorized error');
+            }
+            die;
+        }
         
         $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
         if( isset( apache_request_headers()['Authorization'] ) ){
@@ -870,7 +934,11 @@ class GarminProcess {
             }
         }
         if( $failed ){
-            header('HTTP/1.1 401 Unauthorized error');
+            if( $this->verbose ){
+                printf( 'ERROR: authorization failed'.PHP_EOL );
+            }else{
+                header('HTTP/1.1 401 Unauthorized error');
+            }
             die;
 
         }
@@ -1744,30 +1812,53 @@ class GarminProcess {
         return $newdata;
     }
 
-    function query_file( $cs_user_id, $activity_id, $file_id ){
-        if( $file_id ){
-            $query = "SELECT data FROM assets WHERE file_id = $file_id";
-        }else if( $activity_id ){
-            $check = $this->sql->query_first_row( "SELECT activity_id,parent_activity_id FROM activities WHERE activity_id = $activity_id" );
-            if( isset( $check['parent_activity_id'] ) ){
-                $use_activity_id = $check['parent_activity_id'];
-            }else{
-                $use_activity_id = $activity_id;
-            }
-                
-            $query = "SELECT data FROM activities act, assets ast WHERE act.file_id = ast.file_id AND act.activity_id = $use_activity_id";
+    function query_file( $paging ){
+        if( $paging->direct_file_query() ){
+            $query = sprintf( "SELECT file_id,data FROM assets WHERE %s", $paging->file_where() );
+        }else if ($paging->summary_file_query() ){
+            $query = sprintf( "SELECT fitfiles.file_id,data FROM fitfiles, assets WHERE fitfiles.asset_id = assets.asset_id AND fitfiles.summaryId = %d", $paging->summary_id );
+        }else{
+            $query = sprintf( "SELECT activity_id,data FROM activities, assets WHERE activities.file_id = assets.file_id AND %s %s", $paging->activities_where(), $paging->activities_paging() );
         }
         if( $this->sql->verbose ){
             printf( 'EXECUTE: %s'.PHP_EOL, $query );
         }
         $stmt = $this->sql->connection->query($query);
+        
+        $rv = NULL;
+        $zip = NULL;
+        $zipname = NULL;
         if( $stmt ){
-            $results = $stmt->fetch_array( MYSQLI_ASSOC );
-            if( $results ){
-                return $results['data'];
+            while( $results = $stmt->fetch_array( MYSQLI_ASSOC ) ){
+                if( ! $rv ){
+                    $onename = sprintf( '%d.fit', isset($results['activity_id']) ? $results['activity_id'] : $results['file_id'] );
+                    $rv = $results['data'];
+                }else{
+                    // If multiple, create zip archive
+                    if( ! $zip ){
+                        $zipname = sprintf( '%s/%s.zip', $this->maintenance_writable_path( 'tmp' ), $paging->filename_identifier() );
+                        $zip = new ZipArchive();
+                        $zip->open( $zipname, ZipArchive::CREATE );
+                        // Add first one
+                        $zip->addFromString( $onename, $rv );
+                    }
+                    $onename = sprintf( '%d.fit', isset($results['activity_id']) ? $results['activity_id'] : $results['file_id'] );
+                    $zip->addFromString( $onename, $results['data'] );
+                }
             }
         }
-        return NULL;
+        if( isset( $zip ) ){
+            $zip->close();
+            $zip = NULL;
+
+            $rv = file_get_contents( $zipname );
+            if( $this->verbose ){
+                printf( 'INFO: using zip file %s (%d bytes)'.PHP_EOL, $zipname, strlen( $rv ) );
+            }
+            unlink( $zipname );
+        }
+        
+        return $rv;
     }
 
     function query_json( $tables, $paging ){

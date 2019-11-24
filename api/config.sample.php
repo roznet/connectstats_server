@@ -44,6 +44,9 @@ $api_config = array(
 	'db_username' => '',
 	'db_password' => '',
 
+    // The database to use to manage the queue
+    'db_queue' => '',
+
     // The url to use for call back to the Garmin Health API
     // These are parameter to a test server can use alternative url
 	'url_user_id' => 'https://healthapi.garmin.com/wellness-api/rest/user/id',
@@ -54,11 +57,13 @@ $api_config = array(
     // For permissions issues
     //'tmp' => '',
 
-    // Key to the dark Sky Net API, so weather can be downloaded for
+    // OPTIONAL Key to the dark Sky Net API, so weather can be downloaded for
     // activities
     //'darkSkyKey' => '',
 
-    // Url to the server to do an incremental backup of
+    // OPTIONAL Url to the server to do an incremental backup of
     //'url_backup_source' => '',
+		
+
 );
 ?>
