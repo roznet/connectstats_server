@@ -12,9 +12,9 @@ function build_local_from_scratch {
 	${QUERY} "${base_url}/api/connectstats/user_register?userAccessToken=testtoken&userAccessTokenSecret=testsecret"
 	${QUERY} "${base_url}/api/connectstats/user_register?userAccessToken=testtoken2&userAccessTokenSecret=testsecret2"
 	# upload some fit files from the simulator
-	${CURL} -H "Content-Type: application/json;charset=utf-8" -d @sample-file-local.json "${base_url}/api/garmin/file"
+	cat sample-file-local.json | sed -e "s/1557209607/`date +%s`/" | ${CURL} -H "Content-Type: application/json;charset=utf-8" -d @- "${base_url}/api/garmin/file"
 	# upload activities
-	${CURL} -H "Content-Type: application/json;charset=utf-8" -d @sample-backfill-activities.json "${base_url}/api/garmin/activities"
+	cat sample-backfill-activities.json | sed -e "s/1557209607/`date +%s`/" | ${CURL} -H "Content-Type: application/json;charset=utf-8" -d @- "${base_url}/api/garmin/activities"
 }
 
 
@@ -38,10 +38,10 @@ rm t.json t.fit f.json
 echo "waiting a bit for tasks to complete"
 sleep 2
 
-${QUERY} -t=1 -o=t.json "${base_url}/api/connectstats/search?token_id=1&start=0&limit=50"
-${QUERY} -t=1 -o=t.fit  "${base_url}/api/connectstats/file?token_id=1&activity_id=1"
+${QUERY} -v -t=1 -o=t.json "${base_url}/api/connectstats/search?token_id=1&start=0&limit=50"
+${QUERY} -v -t=1 -o=t.fit  "${base_url}/api/connectstats/file?token_id=1&activity_id=1"
 
-${QUERY} -t=1 -o=f.json  "${base_url}/api/connectstats/json?token_id=1&limit=50&table=fitsession"
+${QUERY} -v -t=1 -o=f.json  "${base_url}/api/connectstats/json?token_id=1&limit=50&table=fitsession"
 
 
 ls -lrt t.fit t.json f.json

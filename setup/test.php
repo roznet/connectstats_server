@@ -21,7 +21,7 @@ class ServerTest {
     function validate_activities(){
         $reloaded = json_decode( file_get_contents( 't.json' ), true );
         $sent = json_decode( file_get_contents( 'sample-backfill-activities.json' ), true );
-        
+
         $this->assert( count( $reloaded['activityList'] ) == count( $sent['activities'] ), sprintf( 'backfill sent %d and recovered %d activities',count( $sent['activities'] ),count( $reloaded['activityList'] ) ) );
         
         $this->cache_reloaded = array();

@@ -18,7 +18,8 @@ if( isset( $argv[1] ) ){
         $file_id = $process->validate_input_id($arg_file_id);
         //only extract if within 24h
         if( $process->should_fit_extract( $file_id, 24.0 ) ){
-            $data = $process->query_file( NULL, NULL, $file_id );
+            $paging = new Paging( [ 'file_id' => $file_id ], NULL, $process->sql );
+            $data = $process->query_file( $paging );
 
             if( strlen( $data ) ){
                 try {

@@ -163,7 +163,7 @@ class StatusCollector {
  */
 class Paging {
     const SYSTEM_TOKEN = -1;
-    
+
     function __construct( $getparams, $token_id, $sql ){
         $this->sql = $sql;
         $this->token_id = $token_id;
@@ -220,7 +220,7 @@ class Paging {
     function activities_where(){
         $conditions = array();
 
-        if( isset( $this->cs_user_id ) && $this->token_id != SYSTEM_TOKEN ){
+        if( isset( $this->cs_user_id ) && $this->token_id != Paging::SYSTEM_TOKEN ){
             array_push( $conditions, sprintf( 'activities.cs_user_id = %d', $this->cs_user_id ) );
         }
         
