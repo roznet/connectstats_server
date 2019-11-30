@@ -586,6 +586,15 @@ class GarminProcess {
         return $rv;
     }
 
+    function user_is_active( $cs_user_id ){
+        $query = sprintf( "SELECT * FROM `usage` WHERE ts > NOW() - INTERVAL 45 DAY AND cs_user_id = %d LIMIT 1", $cs_user_id );
+        $rv = $this->sql->query_first_row( $query );
+        if( $rv ) {
+            return( true );
+        }
+        return false;
+    }
+    
     function user_info( $userAccessToken ){
         $query = sprintf( "SELECT * FROM tokens WHERE userAccessToken = '%s'", $userAccessToken );
 
@@ -1092,10 +1101,12 @@ class GarminProcess {
 
 
     function should_fit_extract( $file_id ,$max_hours ){
-        $query = sprintf( 'select file_id,startTimeInSeconds FROM fitfiles WHERE file_id = %d', $file_id );
+        $query = sprintf( 'select file_id,cs_user_id,startTimeInSeconds FROM fitfiles WHERE file_id = %d', $file_id );
         $should = $this->sql->query_first_row( $query );
         if( isset($should['startTimeInSeconds']) && abs( microtime(true) - (floatval($should['startTimeInSeconds']) ) ) < 3600.0 * $max_hours ){
-            return true;
+            if( isset( $should['cs_user_id'] ) ){
+                return $this->user_is_active( intval( $should['cs_user_id'] ) );
+            }
         }
         return false;
     }
@@ -1113,7 +1124,7 @@ class GarminProcess {
         $user = $this->sql->query_first_row( $query );
         if( isset( $user['cs_user_id'] ) ){
             $cs_user_id = intval( $user['cs_user_id'] );
-            
+
             $this->ensure_schema();
                 
             // Can we get gps positions?
@@ -1176,7 +1187,7 @@ class GarminProcess {
      *    This function is called in the background
      *    It will query the Garmin API for each file that needs to be downloaded
      *    and if necessary will extract information from the fit file
-     *    will be called for table fitfiles
+     *    will be called for table fitfiles, cbids will be file_id of the table (fitfiles)
      */
     function run_file_callback( string $table, array $cbids ){
         $this->ensure_schema();
@@ -1194,7 +1205,11 @@ class GarminProcess {
             printf( 'ERROR: ret=%d for %s'.PHP_EOL, $retval, $command );
         }
     }
-    
+
+    /**
+     *   Run one callback on table (typically fitfiles) and cbid (file_id)
+     *   Will download the file and if successfull save it in assets table
+     */
     function file_callback_one( $table, $cbid ){
         
         $save_to_file = false;

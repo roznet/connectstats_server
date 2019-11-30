@@ -30,8 +30,7 @@ if( isset( $argv[1] ) ){
                 }
             }
         }else{
-            printf( 'INFO: skipping extract for %d as appears too old'.PHP_EOL, $file_id );
-
+            printf( 'INFO: skipping extract for %d as appears too old or inactive'.PHP_EOL, $file_id );
         }
     }
 }
