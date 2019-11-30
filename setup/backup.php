@@ -29,13 +29,23 @@
 error_reporting(E_ALL);
 
 /*
- * 1. download from `url_backup_source` key in config.php and save into the database defined in config.php
- * 2. edit 
+ * To configure:
+ *  update `url_backup_source` key in config.php to the url back you want to do the back up from
+ *  the back up will save into the database defined in config.php as 'database'
+ *
+ * Actions of the script:
+ *  download the update since last back up from the source for tokens and users as well as the cache
+ *
+ *  will replace the url call back in the cache by a call to sync from the backup source
+ *  you'll need to run backup_tasks to process the cache, this allows for throttling/staging/testing
  *
  */
 include_once( '../api/shared.php' );
 
-
+/*
+ * Only backup from the cache and tokens/users, the rest will be recreated
+ * uncomment to do simple copies
+ */
 $keys = array(
 #    'activities' => 'activity_id',
 #    'backfills' => 'backfill_id',
@@ -73,7 +83,7 @@ if( true ){
     }
 }
 
-$process->set_verbose( false );
+$process->set_verbose( true );
 
 $last_backup = $process->sql->query_first_row( 'SELECT MAX(activities_cache_id) AS activities_cache_id, MAX(fitfiles_cache_id) AS fitfiles_cache_id FROM backup_info' );
 $activities_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_activities' );
@@ -98,6 +108,8 @@ $query = sprintf( 'SELECT * FROM cache_fitfiles WHERE cache_id > %s', $fitfiles_
 
 $results = $process->sql->execute_query( $query );
 
+$process->set_verbose( false );
+
 $i = 0;
 foreach( $results as $row ){
     $json = json_decode( $row['json'], true );
@@ -107,7 +119,7 @@ foreach( $results as $row ){
         $f = 0;
         foreach( $list as $one ){
             if( isset( $one['callbackURL'] ) && isset( $one['summaryId'] ) ){
-                $callbackURL = sprintf( '%s/api/connectstats/sync?summaryId=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
+                $callbackURL = sprintf( '%s/api/connectstats/sync?summary_id=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
                 $one['callbackURL'] = $callbackURL;
             }
             array_push( $newlist, $one );

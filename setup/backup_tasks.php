@@ -1,4 +1,31 @@
 <?php
+/*
+ *  MIT Licence
+ *
+ *  Copyright (c) 2019 Brice Rosenzweig.
+ *
+ *  Permission is hereby granted, free of charge, to any person obtaining a copy
+ *  of this software and associated documentation files (the "Software"), to deal
+ *  in the Software without restriction, including without limitation the rights
+ *  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ *  copies of the Software, and to permit persons to whom the Software is
+ *  furnished to do so, subject to the following conditions:
+ *  
+ *  The above copyright notice and this permission notice shall be included in all
+ *  copies or substantial portions of the Software.
+ *  
+ *  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ *  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ *  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ *  SOFTWARE.
+ *  
+ *  Will try to run the 
+ *
+ *
+ */
 
 include_once( '../api/shared.php' );
 
@@ -26,7 +53,7 @@ function start_id_for_user( $sql, $userId ){
 
 $queue = new Queue( $process->api_config );
 $queue->ensure_schema();
-$queue->set_verbose( true );
+$queue->set_verbose( false );
 
 $options = getopt( 't:', [], $n );
 $remain = array_slice( $argv, $n );
@@ -66,7 +93,7 @@ if( isset( $remain[0] ) ){
         $window_size = 100;
 
         while( $added < $ntasks ){
-            $query = sprintf( "SELECT cache_id,json FROM cache_%s WHERE cache_id > %d AND processed_ts IS NULL ORDER BY cache_id LIMIT %d OFFSET %d", $table, $starting[sprintf( '%s_cache_id', $table )], $window_size,$window_start );
+            $query = sprintf( "SELECT cache_id,json FROM cache_%s WHERE cache_id > %d AND ( processed_ts IS NULL OR processed_ts = DATE('1970-01-01 00:00:00') )  ORDER BY cache_id LIMIT %d OFFSET %d", $table, $starting[sprintf( '%s_cache_id', $table )], $window_size,$window_start );
             $tasks = $process->sql->query_as_array( $query );
             if( !$tasks ){
                 break;
