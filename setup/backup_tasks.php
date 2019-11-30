@@ -19,13 +19,10 @@ if( ! $process->sql->table_exists( 'backup_status_users' ) ){
     die();
 }
 
-function start_id_for_user( $qsl, $userId ){
+function start_id_for_user( $sql, $userId ){
     return $sql->query_first_row( sprintf( "SELECT * FROM backup_status_users WHERE userId = '%s'", $userId ) );
 }
 
-function update_start_id_for_user( $sql, $userId, $activity_id, $fitfiles_id ){
-
-}
 
 $queue = new Queue( $process->api_config );
 $queue->ensure_schema();
@@ -34,6 +31,7 @@ $queue->set_verbose( true );
 $options = getopt( 't:', [], $n );
 $remain = array_slice( $argv, $n );
 
+$execute = true;
 
 if( isset( $remain[0] ) ){
     $ntasks = intval( $remain[0] );
@@ -51,6 +49,12 @@ if( isset( $remain[0] ) ){
     $cwd = getcwd();
     $path = join( '/', array_merge(explode( '/', pathinfo( $cwd )['dirname'] ), ['api','garmin']) );
 
+    $latest = start_id_for_user( $process->sql, $userId ?? ALL_USERS );
+    if(! $latest ){
+        $latest = [ 'userId' => $userId ?? ALL_USERS, 'activities_cache_id' => 0, 'fitfiles_cache_id' => 0 ];
+    }
+
+    $starting = $latest;
     
     foreach( ['activities','fitfiles'] as $table ){
 
@@ -62,13 +66,12 @@ if( isset( $remain[0] ) ){
         $window_size = 100;
 
         while( $added < $ntasks ){
-            $query = sprintf( "SELECT cache_id,json FROM cache_%s WHERE processed_ts IS NULL ORDER BY cache_id LIMIT %d OFFSET %d", $table,  $window_size,$window_start );
+            $query = sprintf( "SELECT cache_id,json FROM cache_%s WHERE cache_id > %d AND processed_ts IS NULL ORDER BY cache_id LIMIT %d OFFSET %d", $table, $starting[sprintf( '%s_cache_id', $table )], $window_size,$window_start );
             $tasks = $process->sql->query_as_array( $query );
             if( !$tasks ){
                 break;
             }
             foreach( $tasks as $task ){
-
                 $add = false;
                 if( isset( $userId ) ){
                     $json = json_decode( $task['json'], true );
@@ -89,18 +92,27 @@ if( isset( $remain[0] ) ){
                 }else{
                     $add = true;
                 }
-                if( $add ){
+                if( $add ) {
                     $added += 1;
                     $command = sprintf( 'php run%s.php %d', $table, $task['cache_id'] );
                     printf( 'ADD: %s in %s'.PHP_EOL, $command, $path );
-                    #$queue->add_task( $command, $path );
+                    $latest[ sprintf( '%s_cache_id', $table ) ] = $task['cache_id'];
+                    if( $execute ){
+                        $queue->add_task( $command, $path );
+                    }
                 }
                 $lookedat += 1;
+                if( $added >= $ntasks ){
+                    break;
+                }
             }
             $window_start += $window_size;
         }
         printf( '%s: Added %d out of %d'.PHP_EOL, $table, $added, $lookedat );
     }
-    #$queue->start_queues();
+    $process->sql->insert_or_update( 'backup_status_users', $latest, array( 'userId' ) );
+    if( $execute ){
+        $queue->start_queues();
+    }
 }
 ?>

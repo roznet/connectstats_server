@@ -40,10 +40,24 @@ $process = new GarminProcess();
 
 
 if( isset( $_GET['table'] ) ){
-    // Ensure that the call is authenticated with the system token
-    $process->authenticate_system_call();
     
     $paging = new Paging( $_GET, Paging::SYSTEM_TOKEN, $process->sql );
+
+    if( $paging->summary_file_query() ){
+        // If one file, authenticate by the user of the file
+        $user = $process->sql->query_first_row( sprintf( "SELECT cs_user_id FROM fitfiles WHERE summaryId = %d", $paging->summary_id ) );
+        if( isset($user['cs_user_id']) ){
+            $token = $process->sql->query_first_row( sprintf( "SELECT token_id FROM tokens WHERE cs_user_id = %d ORDER BY token_id DESC LIMIT 1", $user['cs_user_id'] ) );
+            $token_id = $token['token_id'];
+        }
+        if( ! isset( $token_id ) ){
+            die;
+        }
+        $process->authenticate_header($token_id );
+    }else{
+        // Ensure that the call is authenticated with the system token
+        $process->authenticate_system_call();
+    }
     
     $table = $_GET['table'];
 
