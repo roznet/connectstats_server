@@ -107,7 +107,7 @@ foreach( $results as $row ){
         $f = 0;
         foreach( $list as $one ){
             if( isset( $one['callbackURL'] ) && isset( $one['summaryId'] ) ){
-                $callbackURL = sprintf( '%s/api/connectstats/sync?summaryId=%d&table=assets', $process->api_config['url_backup_source'], $one['summaryId'] );
+                $callbackURL = sprintf( '%s/api/connectstats/sync?summaryId=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
                 $one['callbackURL'] = $callbackURL;
             }
             array_push( $newlist, $one );
