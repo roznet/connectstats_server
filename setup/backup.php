@@ -47,12 +47,12 @@ include_once( '../api/shared.php' );
  * uncomment to do simple copies
  */
 $keys = array(
-#    'activities' => 'activity_id',
-#    'backfills' => 'backfill_id',
-#    'assets' => 'asset_id',
-#    'fitfiles' => 'file_id',
-#    'weather' => 'file_id',
-#    'fitsession' => 'file_id'
+    'activities' => 'activity_id',
+    'backfills' => 'backfill_id',
+    'assets' => 'asset_id',
+    'fitfiles' => 'file_id',
+    'weather' => 'file_id',
+    'fitsession' => 'file_id',
     'cache_activities' => 'cache_id',
     'cache_fitfiles' => 'cache_id',
     'tokens' => 'token_id',
@@ -83,58 +83,60 @@ if( true ){
     }
 }
 
-$process->set_verbose( true );
-
-$last_backup = $process->sql->query_first_row( 'SELECT MAX(activities_cache_id) AS activities_cache_id, MAX(fitfiles_cache_id) AS fitfiles_cache_id FROM backup_info' );
-$activities_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_activities' );
-$fitfiles_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_fitfiles' );
-
-$activities_cache_id_from = $last_backup['activities_cache_id'] ?? 0;
-$fitfiles_cache_id_from = $last_backup['fitfiles_cache_id'] ?? 0;
-
-$activities_cache_id_to = $activities_latest['cache_id'] ?? 0;
-$fitfiles_cache_id_to = $fitfiles_latest['cache_id'] ?? 0;
-
-printf( 'Updating cache activities %d -> %d'.PHP_EOL, $activities_cache_id_from, $activities_cache_id_to );
-printf( 'Updating cache fitfiles %d -> %d'.PHP_EOL, $fitfiles_cache_id_from, $fitfiles_cache_id_to );
-
-$query = sprintf( 'UPDATE cache_activities SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $activities_cache_id_from );
-$process->sql->execute_query(  $query );
-
-$query = sprintf( 'UPDATE cache_fitfiles SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $fitfiles_cache_id_from );
-$process->sql->execute_query(  $query );
-
-$query = sprintf( 'SELECT * FROM cache_fitfiles WHERE cache_id > %s', $fitfiles_cache_id_from );
-
-$results = $process->sql->execute_query( $query );
-
-$process->set_verbose( false );
-
-$i = 0;
-foreach( $results as $row ){
-    $json = json_decode( $row['json'], true );
-    if( isset( $json['activityFiles' ]) ) {
-        $list = $json['activityFiles'];
-        $newlist = array();
-        $f = 0;
-        foreach( $list as $one ){
-            if( isset( $one['callbackURL'] ) && isset( $one['summaryId'] ) ){
-                $callbackURL = sprintf( '%s/api/connectstats/sync?summary_id=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
-                $one['callbackURL'] = $callbackURL;
-            }
-            array_push( $newlist, $one );
-        }
-        $json['activityFiles'] = $newlist;
-        $row['json'] = json_encode( $json );
-        $process->sql->insert_or_update( 'cache_fitfiles', $row, array( 'cache_id' ) );
-        $i++;
-    }
-}
-
-$process->sql->insert_or_update( 'backup_info', array( 'activities_cache_id' => $activities_cache_id_to, 'fitfiles_cache_id' => $fitfiles_cache_id_to ) );
-
 if( $newdata ){
     printf( "Should try more".PHP_EOL );
 }
 
+if( false ){
+    $process->set_verbose( true );
+
+    $last_backup = $process->sql->query_first_row( 'SELECT MAX(activities_cache_id) AS activities_cache_id, MAX(fitfiles_cache_id) AS fitfiles_cache_id FROM backup_info' );
+    $activities_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_activities' );
+    $fitfiles_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_fitfiles' );
+
+    $activities_cache_id_from = $last_backup['activities_cache_id'] ?? 0;
+    $fitfiles_cache_id_from = $last_backup['fitfiles_cache_id'] ?? 0;
+
+    $activities_cache_id_to = $activities_latest['cache_id'] ?? 0;
+    $fitfiles_cache_id_to = $fitfiles_latest['cache_id'] ?? 0;
+
+    printf( 'Updating cache activities %d -> %d'.PHP_EOL, $activities_cache_id_from, $activities_cache_id_to );
+    printf( 'Updating cache fitfiles %d -> %d'.PHP_EOL, $fitfiles_cache_id_from, $fitfiles_cache_id_to );
+
+    $query = sprintf( 'UPDATE cache_activities SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $activities_cache_id_from );
+    $process->sql->execute_query(  $query );
+
+    $query = sprintf( 'UPDATE cache_fitfiles SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $fitfiles_cache_id_from );
+    $process->sql->execute_query(  $query );
+
+    $query = sprintf( 'SELECT * FROM cache_fitfiles WHERE cache_id > %s', $fitfiles_cache_id_from );
+
+    $results = $process->sql->execute_query( $query );
+
+    $process->set_verbose( false );
+
+    $i = 0;
+    foreach( $results as $row ){
+        $json = json_decode( $row['json'], true );
+        if( isset( $json['activityFiles' ]) ) {
+            $list = $json['activityFiles'];
+            $newlist = array();
+            $f = 0;
+            foreach( $list as $one ){
+                if( isset( $one['callbackURL'] ) && isset( $one['summaryId'] ) ){
+                    $callbackURL = sprintf( '%s/api/connectstats/sync?summary_id=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
+                    $one['callbackURL'] = $callbackURL;
+                }
+                array_push( $newlist, $one );
+            }
+            $json['activityFiles'] = $newlist;
+            $row['json'] = json_encode( $json );
+            $process->sql->insert_or_update( 'cache_fitfiles', $row, array( 'cache_id' ) );
+            $i++;
+        }
+    }
+
+    $process->sql->insert_or_update( 'backup_info', array( 'activities_cache_id' => $activities_cache_id_to, 'fitfiles_cache_id' => $fitfiles_cache_id_to ) );
+}
+ 
 ?>
