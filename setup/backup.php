@@ -48,7 +48,7 @@ include_once( '../api/shared.php' );
  */
 $keys = array(
     'activities' => 'activity_id',
-    'backfills' => 'backfill_id',
+#    'backfills' => 'backfill_id',
     'assets' => 'asset_id',
     'fitfiles' => 'file_id',
     'weather' => 'file_id',
