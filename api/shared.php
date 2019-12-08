@@ -1730,7 +1730,7 @@ class GarminProcess {
         $done = false;
         if( is_writable( 'tmp' ) ){
             // Make sure there is anything to do
-            $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM %s', $key, $table );
+            $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM `%s`', $key, $table );
             $max = $this->sql->query_first_row( $query );
             if( isset( $max['maxkey'] ) ){
                 if( intval( $max['maxkey'] ) <= intval($key_start) ){
