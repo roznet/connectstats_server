@@ -16,6 +16,7 @@ if( $_GET['table'] ){
                    'fitfiles' => 'file_id',
                    'tokens' => 'token_id',
                    'users' => 'cs_user_id',
+                   'usage' => 'usage_id',
                    'weather' => 'file_id',
                    'fitsession' => 'file_id',
                    'cache_activities' => 'cache_id',
