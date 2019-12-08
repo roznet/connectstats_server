@@ -1800,7 +1800,7 @@ class GarminProcess {
         $newdata = false;
         
         if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) && is_writable( $backup_path )){
-            $last = $this->sql->query_first_row( sprintf( 'SELECT MAX(%s) FROM %s', $key, $table ) );
+            $last = $this->sql->query_first_row( sprintf( 'SELECT MAX(%s) FROM `%s`', $key, $table ) );
             $last_key = intval($last[ sprintf( 'MAX(%s)', $key ) ]);
             $database = $this->api_config['database'];
             $url_src = $this->api_config['url_backup_source'];
