@@ -22,7 +22,10 @@
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
  *  
- *  Will try to run the 
+ *  USAGE:
+ *      php backup_tasks.php [-t=token_id] n 
+ *  Will try to run the updates from the cache for n activities and files
+ *      Optionally will only run for the activities of token_id
  *
  *
  */
@@ -30,7 +33,7 @@
 include_once( '../api/shared.php' );
 
 $process = new GarminProcess();
-$process->set_verbose( true );
+$process->set_verbose( false );
 
 $process->ensure_commandline($argv);
 $process->ensure_schema();
