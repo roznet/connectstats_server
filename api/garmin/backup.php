@@ -1,4 +1,4 @@
-yes<?php
+<?php
 
 oinclude_once('../shared.php');
 
