@@ -20,7 +20,9 @@ if( $_GET['table'] ){
                    'weather' => 'file_id',
                    'fitsession' => 'file_id',
                    'cache_activities' => 'cache_id',
-                   'cache_fitfiles' => 'cache_id'
+                   'cache_fitfiles' => 'cache_id',
+                   'cache_activities_map' => 'activity_id',
+                   'cache_fitfiles_map' => 'file_id',
     );
 
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){

@@ -49,6 +49,8 @@ include_once( '../api/shared.php' );
 $keys = array(
     'cache_activities' => 'cache_id',
     'cache_fitfiles' => 'cache_id',
+    'cache_activities_map' => 'activity_id',
+    'cache_fitfiles_map' => 'file_id',
     'tokens' => 'token_id',
     'users' => 'cs_user_id',
 );
