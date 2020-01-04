@@ -23,11 +23,11 @@
  *  SOFTWARE.
  *  
  *
- * This script is the main entry point for call back from the Garmin Health API
+ * This script will process the information saved from a call back by the Garmin Health API
  * 
  * This is expected to be called a lot, so should be lightweight and robust
  *
- * It will save the input from the call back into the database
+ * It has to be called by the command line (typically added to the queue)
  */
 
 

@@ -24,7 +24,9 @@
  *  
  *
  *  This is the entry point for the Garmin Health API to notify of a file being 
- *  Ready to be downloaded. It will trigger the download in the background
+ *  Ready to be downloaded. 
+ *  It will save the information to the cache, and will trigger the download in the background by
+ *  sending a command to the queue
  */
 
 include_once('../shared.php');

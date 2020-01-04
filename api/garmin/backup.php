@@ -1,6 +1,6 @@
-<?php
+yes<?php
 
-include_once('../shared.php');
+oinclude_once('../shared.php');
 
 $process = new GarminProcess();
 

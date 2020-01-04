@@ -23,14 +23,14 @@
  *  SOFTWARE.
  *  
  *
- *  This is the entry point for the Garmin Health API to notify of a file being 
- *  Ready to be downloaded. It will trigger the download in the background
+ *  This is the script that will process and download a file after a push by
+ *  the garmin health api. It will get process the file from the cache database
  */
 
 include_once('../shared.php');
 
 $required_fields = array(
-    'callbackURL', 'startTimeInSeconds', 'summaryId'
+    'callbackURL', 'startTimeInSeconds', 'summaryId', 'fileType'
 );
 $unique_keys = array( 'startTimeInSeconds', 'summaryId' );
 
