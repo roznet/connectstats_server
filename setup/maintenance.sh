@@ -10,7 +10,7 @@ function cleanup {
 				echo "  files: `/usr/bin/find ${target} | wc -l`"
 				echo "  size:  `/usr/bin/du -h ${target}`"
 				echo "Deny from all" > ../api/garmin/tmp/.htaccess
-				/usr/bin/find ${target} -mtime +15 -delete
+				/usr/bin/find ${target} -mtime +7 -delete
 				echo "After cleanup ${target}"
 				echo "  files: `/usr/bin/find ${target} | wc -l`"
 				echo "  size:  `/usr/bin/du -h ${target}`"
