@@ -379,7 +379,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 5;
+        $schema_version = 6;
         $schema = array(
             "usage" => array(
                 'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -415,12 +415,22 @@ class GarminProcess {
                 'processed_ts' => 'DATETIME',
                 'json'=>'MEDIUMTEXT'
             ),
+            "cache_activities_map" => array(
+                'activity_id' => 'BIGINT(20) UNSIGNED PRIMARY KEY',
+                'cache_id' => 'BIGINT(20) UNSIGNED',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+            ),
             "cache_fitfiles" => array(
                 'cache_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'started_ts' => 'DATETIME',
                 'processed_ts' => 'DATETIME',
                 'json'=>'MEDIUMTEXT'
+            ),
+            "cache_fitfiles_map" => array(
+                'file_id' => 'BIGINT(20) UNSIGNED PRIMARY KEY',
+                'cache_id' => 'BIGINT(20) UNSIGNED',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
             ),
             "activities" =>  array(
                 'activity_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -452,6 +462,7 @@ class GarminProcess {
                 'activity_id' => 'BIGINT(20) UNSIGNED',
                 'asset_id' => 'BIGINT(20) UNSIGNED',
                 'cs_user_id' => 'BIGINT(20) UNSIGNED',
+                'fileType' => 'VARCHAR(16)',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'userId' => 'VARCHAR(128)',
                 'userAccessToken' => 'VARCHAR(128)',
@@ -609,7 +620,9 @@ class GarminProcess {
     }
     
     /**
-     * save cache
+     * Called from the garmin health API. 
+     * It will save the output from the api call back and add to the queue
+     * a command to process it later
      */
     function save_to_cache($table){
         $success = false;
@@ -673,6 +686,10 @@ class GarminProcess {
      * you wnat to exclude some keys from required to determine uniqueness
      * of the rows, for example skip callbackURL
      *
+     *    table: the table for the cache information
+     *    insert_id: the cache_id to process inside table
+     *    required: an array of fields that from the cache info to save as a column in the database. In addition, userId and userAccessToken will always be saved
+     *    unique_keys: the array of columns to use in insert or update to ensure only one entry per values in these columns
      */
     function process($table, $insert_id, $required, $unique_keys = NULL ) {
         $this->ensure_schema();
@@ -699,7 +716,7 @@ class GarminProcess {
                 foreach( $data as $summary_type => $activities){
                     foreach( $activities as $activity){
                         $row = array();
-                    
+                        // First build the insert row data with the end_points_fields
                         foreach( $end_points_fields as $key => $value ){
                             if( array_key_exists( $key, $activity ) ){
                                 $row[ $key ] = $activity[$key];
@@ -708,6 +725,7 @@ class GarminProcess {
                             }
                         }
 
+                        // Add to the row data all the required fields from the information from the cache
                         foreach( $required as $key ){
                             if( array_key_exists( $key, $activity ) ) {
                                 $row[$key] = $activity[$key];
@@ -715,7 +733,8 @@ class GarminProcess {
                                 $this->status->error( sprintf( 'Missing required field %s', $key ) );
                             }
                         }
-                    
+
+                        // if any fields not in required or end_points_fields save it as an extra json data for reference
                         $extra = array();
                         foreach( $activity as $key => $value ){
                             if( ! array_key_exists( $key, $required ) && ! array_key_exists( $key, $end_points_fields ) ){
@@ -731,12 +750,35 @@ class GarminProcess {
                         if( isset( $row['callbackURL'] ) ){
                             $callbackURL = true;
                         }
-                        
+
+                        // Save the processed data in the database
                         if( $this->status->success() ){
                             if( ! $this->sql->insert_or_update($table, $row, ($unique_keys != NULL ? $unique_keys : $required) ) ) {
                                 $this->status->error( sprintf( 'SQL error %s', $this->sql->lasterror ) );
                             }
                         }
+
+                        // Now save a link between the data and the cache_id for reference later
+                        if( $this->status->success() ){
+                            $table_insertid = $this->sql->insert_id();
+                            // only if new insert (>0) else it was an update and no need to save
+                            if( $table_insertid > 0 ){
+                                $cache_map_key = NULL;
+                                if( $table == 'activities' ){
+                                    $cache_map_key = 'activity_id';
+                                }else if( $table == 'fitfiles' ){
+                                    $cache_map_key = 'file_id';
+                                }
+                                if( $cache_map_key ){
+                                    $cache_map_table = sprintf( '%s_map', $cachetable );
+                                }
+                                if( !$this->sql->insert_or_update( $cache_map_table, [ $cache_map_key => $table_insertid, 'cache_id' => $insert_id ] ) ){
+                                    $this->status->error( sprintf( 'SQL error %s', $this->sql->lasterror ) );
+                                }
+                            }
+                        }
+
+                        // If callback, record ids that will need to be process in new command
                         if( $this->status->success() ){
                             if( $callbackURL ) {
                                 // If it has a callback URL, find out the file_id for matching summaryId so we can

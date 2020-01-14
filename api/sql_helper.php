@@ -380,11 +380,11 @@ class sql_helper {
 
                             printf( "INFO: %s.%s: [%s] != [%s]\n", $table, $col, $existing, $candidate );
                         }
-                        $query = sprintf( 'ALTER TABLE %s CHANGE COLUMN %s %s %s', $table, $col, $col, $candidate );
+                        $query = sprintf( 'ALTER TABLE `%s` CHANGE COLUMN `%s` `%s` %s', $table, $col, $col, $candidate );
                         $this->execute_query( $query );
                     }
                 }else{
-                    $query = sprintf( 'ALTER TABLE %s ADD COLUMN %s %s', $table, $col, $def );
+                    $query = sprintf( 'ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $col, $def );
                     $this->execute_query( $query );
                 }
             }

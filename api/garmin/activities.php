@@ -27,7 +27,8 @@
  * 
  * This is expected to be called a lot, so should be lightweight and robust
  *
- * It will save the input from the call back into the database
+ * It will save the input from the call back into the cache database 
+ * and will send a command to the queue to process it
  */
 
 

@@ -28,7 +28,7 @@ It will also switcht the callback url from garmin to get the file from the sourc
 
 1. in the setup directory, run `php backup_cache.php`, this will sync the tokens and users, as well as the ping and push garmin sent. This will create a backup from `url_backup_source` from config.php into the database pointed by `database` in config.php.
 2. in the setup directory, run `php backup_tasks.php -t=XX NN` where `XX` is a token_id and `NN` is a number of activities you want to sync up from the user
-
+3. Alternatively run one cache process with `php runactivities CC` or `php runfitfiles CC` where `CC` is the cache id to re-run from the correct table
 
 # Stats/Status queries
 
