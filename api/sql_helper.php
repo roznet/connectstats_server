@@ -222,25 +222,50 @@ class sql_helper {
 		};
 		return( $rv );
 	}
-	function query_as_html_table( $query, $links = NULL ){
+	function query_as_html_table( $query, $links = NULL, $order = NULL ){
 		$rv = "<table class=sqltable>\n";
 		$this->query_init( $query );
 		$titledone = false;
 		$i=0;
+
+        $key_order = NULL;
 		while( $row = $this->query_next() ){
 			if( ! $titledone ){
-                $rv .= sprintf( "<tr><th>%s</th></tr>\n", join( '</th><th>', array_keys( $row ) ) );
+                if( $order ){
+                    $all_keys = array_keys( $row );
+                    $key_order = array();
+                    
+                    foreach( $order as $key ){
+                        if( in_array( $key, $all_keys ) ){
+                            array_push( $key_order, $key );
+                        }
+                    }
+                    foreach( $all_keys as $key ){
+                        if( ! in_array( $key, $key_order ) ){
+                            array_push( $key_order, $key );
+                        }
+                    }
+                }else{
+                    $key_order = array_keys( $row );
+                }
+                $rv .= sprintf( "<tr><th>%s</th></tr>\n", join( '</th><th>',  $key_order) );
                 $titledone = true;
 			}
-		 	$rowVal = array_values( $row );
-		  	$rowKey = array_keys( $row );
-		  	for( $k = 0; $k < count( $rowVal ); $k++ ){
-                $rowVal[ $k ] = htmlspecialchars( $rowVal[ $k ] );
-                if( isset( $links[ $rowKey[ $k ] ] ) ){
-			  		$href = sprintf( $links[ $rowKey[ $k ] ], $rowVal[$k] );
-                    $rowVal[ $k ] = sprintf( '<a href="%s">%s</a>', $href , $rowVal[$k] );
+		  	$rowKey = $key_order;
+		 	$rowVal = array();
+            foreach( $key_order as $key ){
+                $cellVal = $row[$key];
+                if( isset( $links[ $key ] ) ){
+                    if( is_callable( $links[$key] ) ){
+                        $cellVal = $links[$key]( $row );
+                    }else{
+                        $href = sprintf( $links[ $key ], $cellVal );
+                        $cellVal = sprintf( '<a href="%s">%s</a>', $href , $cellVal );
+                    }
                 }
-		 	}
+                
+                array_push( $rowVal, $cellVal );
+            }
 		  	if( $i % 2 == 0 ){
                 $rv .= sprintf( "<tr><td>%s</td></tr>\n", join( '</td><td>', $rowVal ) );
 		  	}else{

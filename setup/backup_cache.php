@@ -41,6 +41,7 @@ error_reporting(E_ALL);
  *
  */
 include_once( '../api/shared.php' );
+ini_set('memory_limit', '1024M'); // or you could use 1G
 
 /*
  * Only backup from the cache and tokens/users, the rest will be recreated

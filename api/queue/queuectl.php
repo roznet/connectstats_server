@@ -33,6 +33,7 @@ $queue->verbose = true;
 #$queue->sql->verbose = true;
 
 $queue->ensure_commandline($argv??NULL,1);
+$queue->ensure_schema();
 
 $options = getopt( 'n', [], $n );
 $remain = array_slice( $argv, $n );
