@@ -6,3 +6,4 @@ error_log
 \.\#*
 t.*
 w.json
+nohup.out
