@@ -1265,6 +1265,12 @@ class GarminProcess {
         }
         
         if( $this->status->success() ){
+            if( isset($this->api_config['ignore_activities_date_threshold']) &&  isset( $row['startTimeInSeconds'] ) && intval($row['startTimeInSeconds']) < intval($this->api_config['ignore_activities_date_threshold']) ){
+                if( $this->verbose ){
+                    printf( 'WARNING: activity startTimeInSeconds %s older than threshold %s, skipping download of data'.PHP_EOL, date("Y-m-d", intval($row['startTimeInSeconds'])), date("Y-m-d", intval($this->api_config['ignore_activities_date_threshold']) ) );
+                }
+                return;
+            }
             $callback_url = $row[ 'callbackURL' ];
             $callback_info = parse_url( $callback_url );
             $get_params = array();
