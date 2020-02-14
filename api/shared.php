@@ -1826,6 +1826,7 @@ class GarminProcess {
                     readfile( $outfile );
                 }
                 $done = true;
+                unlink( $outfile );
             }
         }
         return $done;
