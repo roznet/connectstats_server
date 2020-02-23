@@ -1868,12 +1868,18 @@ class GarminProcess {
         $query = sprintf( 'SELECT MAX(asset_id) FROM assets_s3' );
         $max = $this->sql->query_first_row( $query );
         if( isset( $max['MAX(asset_id)'] ) ){
-            $start = $max['MAX(asset_id)'];
+            $start = $max['MAX(asset_id)'] + 1;
         }else{
             $start = $defaultstart;
         }
-        printf( 'migrating from %s to %s'.PHP_EOL, $start, $start + $limit );
 
+        if( ! isset($this->api_config['save_to_s3_bucket'] ) ){
+            printf( 'no bucket defined'.PHP_EOL);
+            return;
+        }
+        $s3_bucket = $this->api_config['save_to_s3_bucket'];
+        printf( 'migrating from %s to %s using bucket %s'.PHP_EOL, $start, $start + $limit, $s3_bucket );
+        
         for( $cache_id = $start; $cache_id < $start+$limit; $cache_id++){
             
             $row = $this->sql->query_first_row( sprintf( 'SELECT * FROM assets WHERE asset_id = %s', $cache_id ) );
@@ -1888,12 +1894,11 @@ class GarminProcess {
                         printf( 'Uploading %s bytes asset_id=%d file_id=%d'.PHP_EOL, strlen( $row['data'] ), $cache_id, $row['file_id']);
                         $row['path'] = 's3:' . $path;
                         $row['filename'] = basename( $path );
+                        $this->save_to_s3_bucket( $s3_bucket, $path, $row['data'] );
                         unset( $row['data'] );
-                        print_r( $row );
-                            
                     }
-                          
                 }
+                $this->sql->insert_or_update( 'assets_s3', $row );
             }
         }
     }
