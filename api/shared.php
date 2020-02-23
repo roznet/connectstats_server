@@ -380,7 +380,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 6;
+        $schema_version = 7;
         $schema = array(
             "usage" => array(
                 'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -473,6 +473,16 @@ class GarminProcess {
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
             'assets' => array(
+                'asset_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+                'file_id' => 'BIGINT(20) UNSIGNED',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'tablename' => 'VARCHAR(128)',
+                'filename' => 'VARCHAR(32)',
+                'path' => 'VARCHAR(128)',
+                'data' => 'MEDIUMBLOB',
+                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+            ),
+            'assets_s3' => array(
                 'asset_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'file_id' => 'BIGINT(20) UNSIGNED',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
@@ -1249,6 +1259,26 @@ class GarminProcess {
         }
     }
 
+    function file_path_for_file_row( $row ){
+        if( isset( $row['fileType'] ) ){
+            $fileType = strtolower( $row['fileType'] );
+        }else{
+            $fileType = 'fit';
+        }
+            
+        $fnamebase = sprintf( '%s.%s', $row['file_id'], $fileType );
+            
+        if( isset( $row['cs_user_id'] ) ){
+            $pathdir = sprintf( "assets/users/%s/%s", $row['cs_user_id'], $fileType);
+        }else{
+            $pathdir = sprintf( "assets/users/%s/%s", $row['userId'],$fileType );
+        }
+        $path = sprintf( '%s/%s', $pathdir, $fnamebase );
+
+        return $path;
+    }
+
+    
     /**
      *   Run one callback on table (typically fitfiles) and cbid (file_id)
      *   Will download the file and if successfull save it in assets table
@@ -1295,15 +1325,11 @@ class GarminProcess {
             }else{
                 $fileType = 'fit';
             }
-            
-            $fnamebase = sprintf( '%s.%s', $cbid, $fileType );
-            
-            if( isset( $row['cs_user_id'] ) ){
-                $pathdir = sprintf( "assets/%s/%s", $row['cs_user_id'], $fileType);
-            }else{
-                $pathdir = sprintf( "assets/%s/%s", $row['userId'],$fileType );
-            }
-            $path = sprintf( '%s/%s', $pathdir, $fnamebase );
+
+
+            $path = $this->file_path_for_file_row( $row );
+            $fnamebase = basename( $path );
+            $pathdir = dirname( $path );
 
             if( isset($user['userAccessTokenSecret'] ) ){
                 $userAccessTokenSecret = $user['userAccessTokenSecret'];
@@ -1838,6 +1864,40 @@ class GarminProcess {
         }
     }
 
+    function maintenance_migrate_assets( $limit, $defaultstart=0 ){
+        $query = sprintf( 'SELECT MAX(asset_id) FROM assets_s3' );
+        $max = $this->sql->query_first_row( $query );
+        if( isset( $max['MAX(asset_id)'] ) ){
+            $start = $max['MAX(asset_id)'];
+        }else{
+            $start = $defaultstart;
+        }
+        printf( 'migrating from %s to %s'.PHP_EOL, $start, $start + $limit );
+
+        for( $cache_id = $start; $cache_id < $start+$limit; $cache_id++){
+            
+            $row = $this->sql->query_first_row( sprintf( 'SELECT * FROM assets WHERE asset_id = %s', $cache_id ) );
+            if( $row ){
+                printf( 'Processing asset_id=%d'.PHP_EOL, $cache_id);
+                if( strlen( $row['path'] ) > 0 && substr( $row['path'], 0, 3 )== 's3:'){
+                    printf( 'already in c3 asset_id=%d'.PHP_EOL, $cache_id);
+                } else if( strlen( $row['data'] ) > 0 ){
+                    $arow = $this->sql->query_first_row( sprintf( 'SELECT * FROM fitfiles WHERE file_id = %s', $row['file_id'] ) );
+                    if( isset( $arow['cs_user_id'] ) ){
+                        $path = $this->file_path_for_file_row( $arow );
+                        printf( 'Uploading %s bytes asset_id=%d file_id=%d'.PHP_EOL, strlen( $row['data'] ), $cache_id, $row['file_id']);
+                        $row['path'] = 's3:' . $path;
+                        $row['filename'] = basename( $path );
+                        unset( $row['data'] );
+                        print_r( $row );
+                            
+                    }
+                          
+                }
+            }
+        }
+    }
+    
     function maintenance_export_table( $table, $key, $key_start ){
         $done = false;
         if( is_writable( 'tmp' ) ){
