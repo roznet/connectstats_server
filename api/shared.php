@@ -70,6 +70,7 @@ error_reporting(E_ALL);
 
 include_once( 'queue.php');
 include_once( 'sql_helper.php');
+include_once( 'S3.php' );
 
 class garmin_sql extends sql_helper{
 	function __construct() {
@@ -1256,6 +1257,12 @@ class GarminProcess {
         
         $save_to_file = false;
         
+        if( isset($this->api_config['save_to_s3_bucket'] ) ){
+            $save_to_s3 = $this->api_config['save_to_s3_bucket'];
+        }else{
+            $save_to_s3 = false;
+        }
+        
         $this->status->clear('assets');
 
         $query = sprintf( "SELECT * FROM %s WHERE file_id = %s", $table, $cbid );
@@ -1283,15 +1290,18 @@ class GarminProcess {
                 $this->status->error( "unregistered user for $userAccessToken" );
             }
 
-            if( isset( $row['summaryId'] ) ){
-                $fnamebase = sprintf( '%s.fit', $row['summaryId'] );
+            if( isset( $row['fileType'] ) ){
+                $fileType = strtolower( $row['fileType'] );
             }else{
-                $fnamebase = sprintf( '%s.fit', hash('sha1',sprintf( '%s%s', $userAccessToken, $callback_url ) ) );
+                $fileType = 'fit';
             }
-            if( isset( $row['userId'] ) ){
-                $pathdir = sprintf( "assets/%s/", substr( $row['userId'], 0, 8 ) );
+            
+            $fnamebase = sprintf( '%s.%s', $cbid, $fileType );
+            
+            if( isset( $row['cs_user_id'] ) ){
+                $pathdir = sprintf( "assets/%s/%s", $row['cs_user_id'], $fileType);
             }else{
-                $pathdir = sprintf( "assets/%s/", substr( $row['userAccessToken'], 0, 8 ) );
+                $pathdir = sprintf( "assets/%s/%s", $row['userId'],$fileType );
             }
             $path = sprintf( '%s/%s', $pathdir, $fnamebase );
 
@@ -1337,7 +1347,24 @@ class GarminProcess {
                         print( "Error: Failed repeatedly to get callback data for $cbid, skipping".PHP_EOL );
                     }
                 }else{
-                    if( $save_to_file ){
+                    if( $save_to_s3 ){
+                        if( $this->verbose ){
+                            printf( 'S3: save %s to bucket %s'.PHP_EOL, $path, $save_to_s3 );
+                        }
+                        $this->save_to_s3_bucket($save_to_s3,$path,$data);
+                        
+                        $row = array(
+                            'tablename' => $table,
+                            'file_id' => $cbid,
+                            'path' => sprintf( 's3:%s', $path ),
+                            'filename' => $fnamebase,
+                        );
+                        $this->sql->insert_or_update( 'assets', $row, array( 'file_id', 'tablename' ) );
+                        $assetid = $this->sql->insert_id();
+
+                        $this->sql->insert_or_update( $table, array( 'file_id' => $cbid, 'asset_id' => $assetid ), array( 'file_id' ) );
+                        
+                    }else if( $save_to_file ){
                         if( ! file_exists( $pathdir ) ){
                             mkdir( $pathdir, 0777, true );
                         }
@@ -1398,6 +1425,43 @@ class GarminProcess {
         }
     }
 
+
+    function s3(){
+        if( isset( $this->s3 ) ){
+            return( $this->s3 );
+        }
+
+        
+        if( isset( $this->api_config['s3_access_key'] ) && isset( $this->api_config['s3_secret_key'] ) ){
+            $this->s3 = new S3($this->api_config['s3_access_key'], $this->api_config['s3_secret_key'] );
+            $this->s3->setSignatureVersion('v4');
+            if( isset( $this->api_config['s3_region'] ) ){
+                $this->s3->setRegion($this->api_config['s3_region']);
+            }
+        }else{
+            $this->s3;
+        }
+
+        return( $this->s3 );
+    }
+    function save_to_s3_bucket($bucket,$path,$data){
+        $s3 = $this->s3();
+        if( $s3 ){
+            $s3->putObject( $data, $bucket, $path );
+        }
+    }
+
+    function retrieve_from_s3_bucket($bucket,$path){
+        $s3 = $this->s3();
+        if( $s3 ){
+            $response = $s3->getObject( $bucket, $path );
+            $data = $response->body;
+        }else{
+            $data = NULL;
+        }
+        return $data;
+    }
+    
     /**
      *   This function is called from the REST API 
      *   and will trigger a back fromm process from start_year if
@@ -1875,13 +1939,35 @@ class GarminProcess {
         return $newdata;
     }
 
+    function data_from_asset_row($row){
+        $rv = NULL;
+        if( isset( $row['path'] ) ){
+            if( substr( $row['path'], 0, 3 ) == 's3:' ){
+                if( isset($this->api_config['save_to_s3_bucket'] ) ){
+                    $s3_bucket = $this->api_config['save_to_s3_bucket'];
+                    $s3_path = substr( $row['path'], 3, strlen( $row['path'] ) );
+                    
+                    if( $this->verbose ){
+                        printf( 'Retrieve %s from s3 bucket %s'.PHP_EOL, $s3_path, $s3_bucket);
+                    }
+                
+                    $rv = $this->retrieve_from_s3_bucket( $s3_bucket, $s3_path);
+                }
+            }
+        }
+        if( $rv == NULL && $row['data'] ){
+            $rv = $row['data'];
+        }
+        return $rv;
+    }
+    
     function query_file( $paging ){
         if( $paging->direct_file_query() ){
-            $query = sprintf( "SELECT file_id,data FROM assets WHERE %s", $paging->file_where() );
+            $query = sprintf( "SELECT file_id,path,data FROM assets WHERE %s", $paging->file_where() );
         }else if ($paging->summary_file_query() ){
-            $query = sprintf( "SELECT fitfiles.file_id,data FROM fitfiles, assets WHERE fitfiles.asset_id = assets.asset_id AND fitfiles.summaryId = %d", $paging->summary_id );
+            $query = sprintf( "SELECT fitfiles.file_id,data,path FROM fitfiles, assets WHERE fitfiles.asset_id = assets.asset_id AND fitfiles.summaryId = %d", $paging->summary_id );
         }else{
-            $query = sprintf( "SELECT activity_id,data FROM activities, assets WHERE activities.file_id = assets.file_id AND %s %s", $paging->activities_where(), $paging->activities_paging() );
+            $query = sprintf( "SELECT activity_id,data,path FROM activities, assets WHERE activities.file_id = assets.file_id AND %s %s", $paging->activities_where(), $paging->activities_paging() );
         }
         if( $this->sql->verbose ){
             printf( 'EXECUTE: %s'.PHP_EOL, $query );
@@ -1895,7 +1981,8 @@ class GarminProcess {
             while( $results = $stmt->fetch_array( MYSQLI_ASSOC ) ){
                 if( ! $rv ){
                     $onename = sprintf( '%d.fit', isset($results['activity_id']) ? $results['activity_id'] : $results['file_id'] );
-                    $rv = $results['data'];
+                    
+                    $rv = $this->data_from_asset_row( $results );
                 }else{
                     // If multiple, create zip archive
                     if( ! $zip ){
@@ -1906,7 +1993,8 @@ class GarminProcess {
                         $zip->addFromString( $onename, $rv );
                     }
                     $onename = sprintf( '%d.fit', isset($results['activity_id']) ? $results['activity_id'] : $results['file_id'] );
-                    $zip->addFromString( $onename, $results['data'] );
+                    $data = $this->data_from_asset_row( $results );
+                    $zip->addFromString( $onename, $data );
                 }
             }
         }
@@ -2031,7 +2119,7 @@ class GarminProcess {
                 array_push($rv, $activity_file);
             }
         }
-        print( json_encode( array( 'file' => $rv ) ) );
+        print( json_encode( array( 'activityFiles' => $rv ) ) );
     }
 
     function query_activities_json( $query ){
