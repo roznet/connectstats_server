@@ -1,4 +1,4 @@
 config.php
 config_[0-9a-zA-Z]*.php
-
+log
 

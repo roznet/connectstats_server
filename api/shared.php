@@ -1213,16 +1213,18 @@ class GarminProcess {
                     }else{
                         $weather = json_decode( $data, true );
                         $keep_hourly = array();
-                        foreach( $weather['hourly']['data'] as $one ){
-                            $cur = $one['time'];
-                            $inside = ($cur > ($st-3600.0)) && ($cur < ($ts+3600.0) );
-                            if( $inside ){
-                                array_push( $keep_hourly, $one );
+                        if( isset( $weather['hourly']['data'] ) ){
+                            foreach( $weather['hourly']['data'] as $one ){
+                                $cur = $one['time'];
+                                $inside = ($cur > ($st-3600.0)) && ($cur < ($ts+3600.0) );
+                                if( $inside ){
+                                    array_push( $keep_hourly, $one );
+                                }
                             }
-                        }
-                        $weather['hourly']['data'] = $keep_hourly;
+                            $weather['hourly']['data'] = $keep_hourly;
 
-                        $this->sql->insert_or_update( 'weather', array( 'cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather) ), array( 'file_id' ) );
+                            $this->sql->insert_or_update( 'weather', array( 'cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather) ), array( 'file_id' ) );
+                        }
                     }
                     curl_close($ch);
                 }
@@ -1465,7 +1467,7 @@ class GarminProcess {
                 $this->s3->setRegion($this->api_config['s3_region']);
             }
         }else{
-            $this->s3;
+            $this->s3 = NULL;
         }
 
         return( $this->s3 );
