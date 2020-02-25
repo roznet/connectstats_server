@@ -1153,12 +1153,14 @@ class GarminProcess {
     }
 
 
-    function should_fit_extract( $file_id ,$max_hours ){
+    function should_fit_extract( $file_id ){
         $query = sprintf( 'select file_id,cs_user_id,startTimeInSeconds FROM fitfiles WHERE file_id = %d', $file_id );
         $should = $this->sql->query_first_row( $query );
-        if( isset($should['startTimeInSeconds']) && abs( microtime(true) - (floatval($should['startTimeInSeconds']) ) ) < 3600.0 * $max_hours ){
-            if( isset( $should['cs_user_id'] ) ){
-                return $this->user_is_active( intval( $should['cs_user_id'] ) );
+        if( isset($should['startTimeInSeconds']) ){
+            if( ! $this->ignore_time_threshold( intval( $should['startTimeInSeconds'] ), 'ignore_fitextract_hours_threshold', NULL ) ){
+                if( isset( $should['cs_user_id'] ) ){
+                    return $this->user_is_active( intval( $should['cs_user_id'] ) );
+                }
             }
         }
         return false;
@@ -1171,7 +1173,7 @@ class GarminProcess {
      *  the weather won't be uploaded
      *
      */
-    function fit_extract( $file_id, $fit_mesgs, $max_hours = 24.0 ){
+    function fit_extract( $file_id, $fit_mesgs ){
         // First see if we have correct file_id
         $query = sprintf( 'SELECT file_id,cs_user_id FROM fitfiles WHERE file_id = %d', $file_id );
         $user = $this->sql->query_first_row( $query );
@@ -1194,7 +1196,7 @@ class GarminProcess {
                 // This is to avoid blast update during backfill
                 if( $lat != 0.0 && $lon != 0.0 &&
                     isset( $this->api_config['darkSkyKey'] ) &&
-                    abs( microtime(true) - (floatval($ts) ) ) < 3600.0 * $max_hours ) {
+                    ! $this->ignore_time_threshold( intval($ts), 'ignore_fitextract_hours_threshold', NULL ) ) {
 
                     $api_config = $this->api_config['darkSkyKey'];
                     $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
@@ -1279,15 +1281,49 @@ class GarminProcess {
 
         return $path;
     }
-
     
+    function ignore_time_threshold( $time, $hours_config_tag, $months_config_tag ){
+        $hours_threshold = 0;
+        $months_threshold = 0;
+        if( $months_config_tag && isset( $this->api_config[$months_config_tag] ) ){
+            $months_threshold = intval( $this->api_config[$months_config_tag] );
+        }
+        if( $hours_config_tag && isset( $this->api_config[$hours_config_tag] ) ){
+            $hours_threshold = intval( $this->api_config[$hours_config_tag] );
+        }
+
+        if( $hours_threshold > 0 || $months_threshold > 0 ){
+            $time_threshold = time() - ( $months_threshold * 30*24*3600 ) - ($hours_threshold * 3600);
+            if( $time < $time_threshold ){
+                if( $this->verbose ){
+                    printf( 'WARNING: time %s older than threshold %s, skipping for %s %s'.PHP_EOL,
+                            date("Y-m-d", $time),
+                            date("Y-m-d", $time_threshold ),
+                            $hours_config_tag ?? '',
+                            $months_config_tag ?? ''
+                    );
+                }
+                return true;
+            }else{
+                if( $this->verbose ){
+                    printf( 'INFO: time %s within threshold %s, proceeding for %s %s'.PHP_EOL,
+                            date("Y-m-d", $time),
+                            date("Y-m-d", $time_threshold ),
+                            $hours_config_tag ?? '',
+                            $months_config_tag ?? ''
+                    );
+                }
+            }
+
+        }
+        return false;
+    }
+
     /**
      *   Run one callback on table (typically fitfiles) and cbid (file_id)
      *   Will download the file and if successfull save it in assets table
      */
     function file_callback_one( $table, $cbid ){
-        
-        $save_to_file = false;
         
         if( isset($this->api_config['save_to_s3_bucket'] ) ){
             $save_to_s3 = $this->api_config['save_to_s3_bucket'];
@@ -1304,12 +1340,10 @@ class GarminProcess {
         }
         
         if( $this->status->success() ){
-            if( isset($this->api_config['ignore_activities_date_threshold']) &&  isset( $row['startTimeInSeconds'] ) && intval($row['startTimeInSeconds']) < intval($this->api_config['ignore_activities_date_threshold']) ){
-                if( $this->verbose ){
-                    printf( 'WARNING: activity startTimeInSeconds %s older than threshold %s, skipping download of data'.PHP_EOL, date("Y-m-d", intval($row['startTimeInSeconds'])), date("Y-m-d", intval($this->api_config['ignore_activities_date_threshold']) ) );
-                }
+            if( isset( $row['startTimeInSeconds'] ) && $this->ignore_time_threshold( intval( $row['startTimeInSeconds'] ), NULL, 'ignore_activities_months_threshold' ) ){
                 return;
             }
+            
             $callback_url = $row[ 'callbackURL' ];
             $callback_info = parse_url( $callback_url );
             $get_params = array();
@@ -1392,22 +1426,6 @@ class GarminProcess {
 
                         $this->sql->insert_or_update( $table, array( 'file_id' => $cbid, 'asset_id' => $assetid ), array( 'file_id' ) );
                         
-                    }else if( $save_to_file ){
-                        if( ! file_exists( $pathdir ) ){
-                            mkdir( $pathdir, 0777, true );
-                        }
-                        file_put_contents($fname, $data);
-
-                        $row = array(
-                            'tablename' => $table,
-                            'file_id' => $cbid,
-                            'path' => $fname,
-                            'filename' => $fnamebase,
-                        );
-                        $this->sql->insert_or_update( 'assets', $row, array( 'file_id', 'tablename' ) );
-                        $assetid = $this->sql->insert_id();
-
-                        $this->sql->insert_or_update( $table, array( 'file_id' => $cbid, 'asset_id' => $assetid ), array( 'file_id' ) );
                     }else{
                         $exists = $this->sql->query_first_row(sprintf("SELECT asset_id FROM assets WHERE file_id=%s AND tablename='%s'",$cbid,$table));
 
@@ -1473,21 +1491,41 @@ class GarminProcess {
         return( $this->s3 );
     }
     function save_to_s3_bucket($bucket,$path,$data){
-        $s3 = $this->s3();
-        if( $s3 ){
-            $s3->putObject( $data, $bucket, $path );
+        if( substr($bucket, 0, 10) == 'localhost:' ){
+            $basepath = substr($bucket,10);
+            if( !$basepath ){
+                $basepath = '.';
+            }
+            $fullpath = sprintf( '%s/%s', $basepath, $path );
+            if( is_dir( dirname( $fullpath ) ) || mkdir( dirname( $fullpath ), 0755, true ) ){
+                file_put_contents( $fullpath, $data );
+            }
+        }else{
+            $s3 = $this->s3();
+            if( $s3 ){
+                $s3->putObject( $data, $bucket, $path );
+            }
         }
     }
 
     function retrieve_from_s3_bucket($bucket,$path){
-        $s3 = $this->s3();
-        if( $s3 ){
-            $response = $s3->getObject( $bucket, $path );
-            $data = $response->body;
+        if( substr($bucket, 0, 10) == 'localhost:' ){
+            $basepath = substr($bucket,10);
+            if( !$basepath ){
+                $basepath = '.';
+            }
+            $data = file_get_contents( sprintf( '%s/%s', $basepath, $path ) );
+            return $data;
         }else{
-            $data = NULL;
+            $s3 = $this->s3();
+            if( $s3 ){
+                $response = $s3->getObject( $bucket, $path );
+                $data = $response->body;
+            }else{
+                $data = NULL;
+            }
+            return $data;
         }
-        return $data;
     }
     
     /**
