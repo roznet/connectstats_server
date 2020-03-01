@@ -84,6 +84,10 @@ if( true ){
         }
     }
 }
+if( true ){
+    $process->maintenance_backup_asset_from_s3(250);
+}
+
 
 if( $newdata ){
     printf( "Should try more".PHP_EOL );

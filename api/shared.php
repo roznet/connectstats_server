@@ -1527,6 +1527,82 @@ class GarminProcess {
             return $data;
         }
     }
+
+    function backup_from_s3_bucket($bucket,$path,$s3_bucket){
+        
+        if( substr($bucket, 0, 10) != 'localhost:' || substr($s3_bucket, 0, 10) == 'localhost:' ){
+            printf( 'ERROR: Expecting to backup s3 bucket (got %s) to a local bucket (got %s)'.PHP_EOL, $s3_bucket, $bucket );
+            die;
+        }
+        
+        $basepath = substr($bucket,10);
+        if( !$basepath ){
+            $basepath = '.';
+        }
+            
+        // Get the remote object
+        $s3 = $this->s3();
+        if( $s3 ){
+            $response = $s3->getObject( $s3_bucket, $path );
+            $data = $response->body;
+            $target_file = sprintf( '%s/%s', $basepath, $path );
+            $target_dir = dirname( $target_file );
+            if( ! is_dir( $target_dir ) ){
+                mkdir( $target_dir, 0755, true );
+            }
+            $bytes = file_put_contents( $target_file, $data );
+            if( $bytes=== false ){
+                printf( 'ERROR: Failed to write file %s (%s/%s)'.PHP_EOL, $target_file, $bytes, strlen( $data ) );
+            }
+        }
+    }
+
+    function maintenance_backup_asset_from_s3($limit = 2){
+        if( !isset( $this->api_config['backup_from_s3_bucket'] ) ){
+            printf( 'ERROR: backup from s3 bucket not setup in config'.PHP_EOL );
+            die;
+        }
+        $save_to_bucket = $this->api_config['save_to_s3_bucket'];
+        $backup_from_bucket = $this->api_config['backup_from_s3_bucket'];
+
+        printf( 'INFO: Backing up from %s to %s'.PHP_EOL, $backup_from_bucket, $save_to_bucket );
+
+        $query = 'SELECT `path` FROM `assets` WHERE `path` IS NOT NULL ORDER BY asset_id DESC';
+
+        $found = $this->sql->query_as_array($query);
+        printf( 'found %d'.PHP_EOL, count( $found ) );
+
+        $done = 0;
+        $already = 0;
+        
+        $local_dir = substr( $save_to_bucket, 10 );
+        if( ! is_dir( $local_dir ) ){
+           printf( 'ERROR: backup target %s is not a directory'.PHP_EOL, $local_dir );
+           die;
+        }
+                
+        foreach( $found as $row ){
+            $full_path = $row['path'];
+            $path = substr($full_path, 3 );
+            $s3 = substr( $full_path, 0, 3 );
+            
+            if( $s3 == 's3:' ){
+                $local_file = sprintf( '%s/%s',  $local_dir, $path);
+                if( is_file( $local_file ) ){
+                    $already += 1;
+                }else{
+                    printf( 'Saving %s to %s [%d/%d previous %d]'.PHP_EOL, $path, $local_file, $done, $limit, $already );
+                    $this->backup_from_s3_bucket($save_to_bucket, $path, $backup_from_bucket );
+                    $done += 1;
+                }
+            }
+            if( $done > $limit ){
+                break;
+            }
+        }
+        printf( 'Done %d/%d (this run %d, previous run %d)'.PHP_EOL, $done + $already, count( $found ), $done, $already );
+    }
+
     
     /**
      *   This function is called from the REST API 
