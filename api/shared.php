@@ -1926,7 +1926,7 @@ class GarminProcess {
         for( $cs_user_id = $first_cs_user_id; ($cs_user_id < $last_user && $done < $limit ); $cs_user_id++){
             if( $this->user_is_active( $cs_user_id ) ){
                 $done += 1;
-                printf( 'processing user %d [done %d]'.PHP_EOL,$cs_user_id, $limit );
+                printf( 'processing user %d [done %d/%d]'.PHP_EOL,$cs_user_id, $done, $limit );
 
                 $this->maintenance_s3_upload_backup_assets_for_user( $cs_user_id );
                 $this->sql->execute_query( sprintf('INSERT INTO upload_bad_files (cs_user_id) VALUES(%d)',$cs_user_id) );
@@ -1937,17 +1937,25 @@ class GarminProcess {
     }
 
     function maintenance_s3_upload_backup_assets_for_user( $cs_user_id ){
-        $query = sprintf( 'SELECT cs_user_id,fitfiles.file_id,fitfiles.asset_id,path,data FROM fitfiles,assets WHERE assets.asset_id = fitfiles.asset_id AND fitfiles.asset_id IS NOT NULL AND cs_user_id = %d AND path IS NULL ORDER BY fitfiles.file_id DESC', $cs_user_id);
+        $query = sprintf( 'SELECT cs_user_id,fitfiles.startTimeInSeconds,fitfiles.file_id,fitfiles.asset_id,path,data FROM fitfiles,assets WHERE assets.asset_id = fitfiles.asset_id AND fitfiles.asset_id IS NOT NULL AND cs_user_id = %d AND path IS NULL ORDER BY fitfiles.file_id DESC', $cs_user_id);
         $stmt = $this->sql->connection->query($query);
         $s3_bucket = $this->api_config['save_to_s3_bucket'];
-        
+        $threshold = intval($this->api_config['ignore_activities_date_threshold'] );
+
         if( $stmt ){
             while( $row = $stmt->fetch_array( MYSQLI_ASSOC ) ){
                 $s3_path = $this->file_path_for_file_row( $row );
-                #$s3_data = NULL;
-                $s3_data = $this->save_to_s3_bucket( $s3_bucket, $s3_path, $row['data']);
+                $time = date("Y-m-d", $row['startTimeInSeconds']);
 
-                printf( 'Uploading %s. cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
+                if( intval($row['startTimeInSeconds']) > $threshold ){
+                    $s3_data = $this->save_to_s3_bucket( $s3_bucket, $s3_path, $row['data']);
+                    
+                          
+                    printf( 'Uploading %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
+
+                }else{
+                    printf( 'Skipping %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes'.PHP_EOL, $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ) );
+                }
             }
         }
     }
