@@ -1,6 +1,6 @@
 <?php
 
-ini_set('memory_limit', '256M' );
+ini_set('memory_limit', '1024M' );
     
 include_once( "../shared.php" );
 
