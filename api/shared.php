@@ -1864,6 +1864,54 @@ class GarminProcess {
         }
     }
 
+    function maintenance_s3_upload_backup_assets( $cs_user_id, $limit ){
+
+        if( ! $this->sql->table_exists('upload_bad_files' ) ){
+            $create = true;
+            $this->sql->create_or_alter('upload_bad_files', array( 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP', 'cs_user_id' => 'BIGINT(20) UNSIGNED KEY' ) );
+        }
+        $last_user = $this->sql->query_first_row( 'SELECT MAX(cs_user_id) FROM `users`' );
+        $last_user = $last_user['MAX(cs_user_id)'];
+
+        $user = $this->sql->query_first_row( 'SELECT MAX(cs_user_id) FROM upload_bad_files' );
+        if( ! $user ){
+            $first_cs_user_id = 1;
+        }else{
+            $first_cs_user_id = intval($user['MAX(cs_user_id)'])+1;
+        }
+
+        printf( 'Processing %d users from %d to %d'.PHP_EOL,$limit, $first_cs_user_id, $last_user );
+        $done = 0;
+
+        for( $cs_user_id = $first_cs_user_id; ($cs_user_id < $last_user && $done < $limit ); $cs_user_id++){
+            if( $this->user_is_active( $cs_user_id ) ){
+                $done += 1;
+                printf( 'processing user %d [done %d]'.PHP_EOL,$cs_user_id, $limit );
+
+                $this->maintenance_s3_upload_backup_assets_for_user( $cs_user_id );
+                $this->sql->execute_query( sprintf('INSERT INTO upload_bad_files (cs_user_id) VALUES(%d)',$cs_user_id) );
+            }else{
+                printf( 'skipping user %d'.PHP_EOL,$cs_user_id );
+            }                
+        }
+    }
+
+    function maintenance_s3_upload_backup_assets_for_user( $cs_user_id ){
+        $query = sprintf( 'SELECT cs_user_id,fitfiles.file_id,fitfiles.asset_id,path,data FROM fitfiles,assets WHERE assets.asset_id = fitfiles.asset_id AND fitfiles.asset_id IS NOT NULL AND cs_user_id = %d AND path IS NULL ORDER BY fitfiles.file_id DESC', $cs_user_id);
+        $stmt = $this->sql->connection->query($query);
+        $s3_bucket = $this->api_config['save_to_s3_bucket'];
+        
+        if( $stmt ){
+            while( $row = $stmt->fetch_array( MYSQLI_ASSOC ) ){
+                $s3_path = $this->file_path_for_file_row( $row );
+                #$s3_data = NULL;
+                $s3_data = $this->save_to_s3_bucket( $s3_bucket, $s3_path, $row['data']);
+
+                printf( 'Uploading %s. asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
+            }
+        }
+    }
+    
     function maintenance_migrate_assets( $limit, $defaultstart=0 ){
         $query = sprintf( 'SELECT MAX(asset_id) FROM assets_s3' );
         $max = $this->sql->query_first_row( $query );
