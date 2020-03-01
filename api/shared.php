@@ -1864,7 +1864,7 @@ class GarminProcess {
         }
     }
 
-    function maintenance_s3_upload_backup_assets( $cs_user_id, $limit ){
+    function maintenance_s3_upload_backup_assets( $limit ){
 
         if( ! $this->sql->table_exists('upload_bad_files' ) ){
             $create = true;
@@ -1907,7 +1907,7 @@ class GarminProcess {
                 #$s3_data = NULL;
                 $s3_data = $this->save_to_s3_bucket( $s3_bucket, $s3_path, $row['data']);
 
-                printf( 'Uploading %s. asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
+                printf( 'Uploading %s. cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
             }
         }
     }
