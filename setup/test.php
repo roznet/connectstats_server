@@ -78,13 +78,19 @@ class ServerTest {
 }
 
 
-if( isset( $argv[1] ) ){
+if( false && isset( $argv[1] ) ){
     $command = $argv[1];
     $args = array_slice( $argv, 2 );
 
     $test = new ServerTest();
     $test->validate_activities();
     $test->validate_fit_file();
+}
+$n=1340;
+for( $i=0;$i<$n;$i+=1){
+    if( $n < 10 || $i % ( $n/10 ) == 0){
+        printf( '%d/%d'.PHP_EOL, $i, $n );
+    }
 }
 
 ?>

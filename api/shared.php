@@ -1580,7 +1580,7 @@ class GarminProcess {
            printf( 'ERROR: backup target %s is not a directory'.PHP_EOL, $local_dir );
            die;
         }
-                
+
         foreach( $found as $row ){
             $full_path = $row['path'];
             $path = substr($full_path, 3 );
@@ -1591,7 +1591,9 @@ class GarminProcess {
                 if( is_file( $local_file ) ){
                     $already += 1;
                 }else{
-                    printf( 'Saving %s to %s [%d/%d previous %d]'.PHP_EOL, $path, $local_file, $done, $limit, $already );
+                    if( $limit < 10 || $done % ( $limit/10 ) == 0){
+                        printf( 'Saving %s to %s [%d/%d previous %d]'.PHP_EOL, $path, $local_file, $done, $limit, $already );
+                    }
                     $this->backup_from_s3_bucket($save_to_bucket, $path, $backup_from_bucket );
                     $done += 1;
                 }
