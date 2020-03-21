@@ -82,6 +82,7 @@ CREATE INDEX activities_startTimeInSeconds_index ON activities (startTimeInSecon
 CREATE INDEX activities_cs_user_id ON activities (cs_user_id);
 
 CREATE INDEX tokens_userAccess ON tokens (userAccessToken);
+CREATE INDEX activities_summaryId ON activities ( summaryId );
 
 ```
 
