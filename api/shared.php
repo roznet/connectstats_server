@@ -523,8 +523,6 @@ class GarminProcess {
     function deregister_user(){
         $this->ensure_schema();
         
-        $this->status = new StatusCollector($table);
-
         $end_points_fields = array(
             'userId' => 'VARCHAR(1024)',
         );
@@ -1520,7 +1518,11 @@ class GarminProcess {
             $s3 = $this->s3();
             if( $s3 ){
                 $response = $s3->getObject( $bucket, $path );
-                $data = $response->body;
+                if( isset( $response->body ) ){
+                    $data = $response->body;
+                }else{
+                    $data = NULL;
+                }
             }else{
                 $data = NULL;
             }
@@ -1827,22 +1829,24 @@ class GarminProcess {
             if( !$fullrow['cs_user_id'] && isset( $row['userAccessToken'] ) && isset( $row['userId'] ) ){
             
                 $userInfo = $this->user_info($row['userAccessToken']);
-                $token_id = $userInfo['token_id'];
+                if( isset( $userInfo['token_id'] ) ){
+                    $token_id = $userInfo['token_id'];
             
-                if( ! isset( $userInfo['cs_user_id'] ) ){
-                    // Check if use exists
-                    $userId = $row['userId'];
-                    $prev = $this->sql->query_first_row( "SELECT userId FROM users WHERE userId = '$userId'" );
-                    if( ! $prev ){
-                        $this->sql->insert_or_update( 'users', array( 'userId' => $userId ) );
-                        $cs_user_id = $this->sql->insert_id();
-                        $this->sql->execute_query( "UPDATE tokens SET cs_user_id = $cs_user_id, userId = '$userId' WHERE token_id = $token_id" );
+                    if( ! isset( $userInfo['cs_user_id'] ) ){
+                        // Check if use exists
+                        $userId = $row['userId'];
+                        $prev = $this->sql->query_first_row( "SELECT userId FROM users WHERE userId = '$userId'" );
+                        if( ! $prev ){
+                            $this->sql->insert_or_update( 'users', array( 'userId' => $userId ) );
+                            $cs_user_id = $this->sql->insert_id();
+                            $this->sql->execute_query( "UPDATE tokens SET cs_user_id = $cs_user_id, userId = '$userId' WHERE token_id = $token_id" );
+                        }
+                    }else{
+                        $cs_user_id = $userInfo['cs_user_id'];
                     }
-                }else{
-                    $cs_user_id = $userInfo['cs_user_id'];
-                }
 
-                array_push( $to_set, sprintf( 'cs_user_id = %d', $cs_user_id ) );
+                    array_push( $to_set, sprintf( 'cs_user_id = %d', $cs_user_id ) );
+                }
             }
 
             //
