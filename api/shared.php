@@ -2162,8 +2162,15 @@ class GarminProcess {
             $url_src = $this->api_config['url_backup_source'];
             $url = sprintf( '%s/api/garmin/backup?database=%s&table=%s&%s=%s', $url_src, $database, $table, $key, $last_key  );
             printf( 'CURL: %s'.PHP_EOL,  $url );
-            
-            $sql_out = sprintf( '%s/backup_%s_%s.sql', $backup_path, $table, $last_key );
+
+            $backup_dir = sprintf( '%s/%s', $backup_path, strftime( '%Y/%m' ) );
+            if( ! is_dir( $backup_dir ) ){
+                if( ! mkdir( $backup_dir, 0755, true ) ){
+                    printf( "ERROR: failed to create directory %s", $backup_dir );
+                    die;
+                }
+            }
+            $sql_out = sprintf( '%s/backup_%s_%s.sql', $backup_dir, $table, $last_key );
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
             $outsize = filesize( $sql_out );
