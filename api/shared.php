@@ -104,7 +104,7 @@ class StatusCollector {
     
     function error( $msg ){
         if( $this->verbose ){
-            printf( "ERROR: %s".PHP_EOL, $msg );
+            $this->log( "ERROR", $msg );
         }
         array_push( $this->messages, $msg );
     }
@@ -140,7 +140,7 @@ class StatusCollector {
             );
 
             if( ! $sql->insert_or_update( $error_table, $row ) ){
-                printf( 'FAILED TO RECORD: %s'.PHP_EOL, $sql->lasterror );
+                $this->log('ERROR', 'Failed To Record: %s', $sql->lasterror );
             }
         }else{
             print( "ERRORS".PHP_EOL );
@@ -326,7 +326,9 @@ class Paging {
 class GarminProcess {
     function __construct() {
         $this->use_queue = true;
+        $this->start_ts = microtime(true);
         $this->sql = new garmin_sql();
+        $this->sql->start_ts = $this->start_ts;
         $this->sql->verbose = false;
         $this->verbose = false;
         $this->status = new StatusCollector();
@@ -349,6 +351,20 @@ class GarminProcess {
         $this->status->verbose = $verbose;
     }
 
+    function log(){
+        if( !isset( $this->start_ts ) ){
+            $this->start_ts = microtime(true);
+        }
+        
+        $args = func_get_args();
+        $tag = array_shift( $args );
+        $fmt = array_shift( $args );
+
+        $msg = vsprintf( $fmt, $args );
+        
+        printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
+    }
+    
     // Reset Database schema from scratch 
     function reset_schema() {
         // For development database only
@@ -372,7 +388,7 @@ class GarminProcess {
             die;
         }
         if( $this->verbose ){
-            printf( 'STARTING: %s'.PHP_EOL, implode( ' ', $argv ) );
+            $this->log( 'STARTING','%s', implode( ' ', $argv ) );
         }
         return true;
     }
@@ -659,14 +675,14 @@ class GarminProcess {
                 $stmt = $this->sql->connection->prepare($query);
                 if( $stmt ){
                     if( $this->verbose ){
-                        printf( 'EXECUTE: %s'.PHP_EOL, $query );
+                        $this->log( 'EXECUTE', $query );
                     }
                     $json = json_encode($data);
                     $stmt->bind_param('s', $json);
                     if (!$stmt->execute()) {
                         $this->status->error(  "Execute failed: (" . $stmt->errno . ") " . $stmt->error );
                         if( $this->verbose ){
-                            printf( 'ERROR: %s [%s] '.PHP_EOL,  $stmt->error, $query);
+                            $this->log( 'ERROR','%s [%s] ',  $stmt->error, $query);
                         }
                     }else{
                         $success = true;
@@ -676,7 +692,7 @@ class GarminProcess {
                 }else{
                     $this->status->error(  "Execute failed: (" . $stmt->errno . ") " . $stmt->error );
                     if( $this->verbose ){
-                        printf( 'ERROR: %s [%s] '.PHP_EOL,  $stmt->error, $query);
+                        $this->log( 'ERROR', '%s [%s] ',  $stmt->error, $query);
                     }
                 }
             }
@@ -824,27 +840,27 @@ class GarminProcess {
             $queue = new Queue();
             $queue->add_task( $command, getcwd() );
             if( $this->verbose ){
-                printf( 'Queue Task Add: %s'.PHP_EOL, $command );
+                $this->log( 'QUEUE',  'Add task `%s`'.PHP_EOL, $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
                 $file_lock = 'log/start_lock';
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
                     if( $this->verbose ){
-                        printf( 'Queue Start Check: Last start %d secs ago'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                        $this->log( 'QUEUE',  'Starting Queue, last start %d secs ago', abs( time() - filemtime( $file_lock ) ));
                     }
                     touch( $file_lock );
                     exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
                 }else{
                     if( $this->verbose ){
-                        printf( 'Queue Start Skip: last start %d secs ago'.PHP_EOL , abs( time() - filemtime( $file_lock ) ));
+                        $this->log( 'QUEUE',  'Start Skip: last start %d secs ago', abs( time() - filemtime( $file_lock ) ) );
                     }
                 }
             }else{
-                printf( 'ERROR: cant start queue %s', getcwd() );
+                $this->log( 'ERROR',  'Start queue failed, ../queue/queuectl.ph not found in %s', getcwd() );
             }
         }else{
             if( $this->verbose ){
-                printf( 'Exec %s'.PHP_EOL, $command );
+                $this->log( 'RUN', $command );
             }
             exec( sprintf( '%s > %s 2>&1 &', $command ) );
         }
@@ -859,7 +875,7 @@ class GarminProcess {
             $command = sprintf( 'php run%s.php %d ', $table, $last_insert_id );
         }
         if( $this->verbose ){
-            printf( 'Exec %s'.PHP_EOL, $command );
+            $this->log( 'EXEC', $command );
         }
         $this->exec( $command, $logfile );
     }
@@ -891,17 +907,15 @@ class GarminProcess {
                 $logfile = '/dev/null';
             }
             if( $this->verbose ){
-                printf( 'Exec %s'.PHP_EOL, $command );
+                $this->log( 'EXEC',  $command );
             }
             $this->exec( $command, $logfile );
         }
     }
     
     function authorization_header_for_token_id( $full_url, $token_id ){
-
         $row = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
         return $this->authorization_header( $full_url, $row['userAccessToken'], $row['userAccessTokenSecret'] );
-        
     }
 
     function interpret_authorization_header( $header ){
@@ -943,7 +957,7 @@ class GarminProcess {
 
         if( $failed ){
             if( $this->verbose ){
-                printf( 'ERROR: authorization failed'.PHP_EOL );
+                $this->log( 'ERROR', 'authorization failed' );
             }else{
                 header('HTTP/1.1 401 Unauthorized error');
             }
@@ -965,7 +979,7 @@ class GarminProcess {
         // This should never be called with system token
         if( $token_id == Paging::SYSTEM_TOKEN ){
             if( $this->verbose ){
-                printf( 'ERROR: authorization failed'.PHP_EOL );
+                $this->log( 'ERROR', 'authorization failed' );
             }else{
                 header('HTTP/1.1 401 Unauthorized error');
             }
@@ -995,7 +1009,7 @@ class GarminProcess {
         }
         if( $failed ){
             if( $this->verbose ){
-                printf( 'ERROR: authorization failed'.PHP_EOL );
+                $this->log( 'ERROR', 'authorization failed' );
             }else{
                 header('HTTP/1.1 401 Unauthorized error');
             }
@@ -1083,7 +1097,7 @@ class GarminProcess {
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers );
 
         if( $this->verbose ){
-            printf( "CURL: %s".PHP_EOL, $url );
+            $this->log( 'CURL', $url );
         }
         $data = curl_exec($ch);
         if( $data === false ) {
@@ -1205,7 +1219,7 @@ class GarminProcess {
                     curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1 );
 
                     if( $this->verbose ){
-                        printf( "CURL: %s".PHP_EOL, $url );
+                        $this->log( "CURL", $url );
                     }
                     $data = curl_exec($ch);
                     if( $data === false ) {
@@ -1252,12 +1266,12 @@ class GarminProcess {
 
         $command = sprintf( 'php runfitextract.php %s', implode(' ', $cbids ) );
         if( $this->verbose ){
-            printf( 'EXEC: %s'.PHP_EOL, $command );
+            $this->log( 'EXEC', $command );
         }
         $retval = 0;
         system( $command, $retval );
         if( $retval != 0 && $this->verbose){
-            printf( 'ERROR: ret=%d for %s'.PHP_EOL, $retval, $command );
+            $this->log( 'ERROR','ret=%d for %s', $retval, $command );
         }
     }
 
@@ -1294,7 +1308,7 @@ class GarminProcess {
             $time_threshold = time() - ( $months_threshold * 30*24*3600 ) - ($hours_threshold * 3600);
             if( $time < $time_threshold ){
                 if( $this->verbose ){
-                    printf( 'WARNING: time %s older than threshold %s, skipping for %s %s'.PHP_EOL,
+                    $this->log( 'WARNING','time %s older than threshold %s, skipping for %s %s',
                             date("Y-m-d", $time),
                             date("Y-m-d", $time_threshold ),
                             $hours_config_tag ?? '',
@@ -1304,7 +1318,7 @@ class GarminProcess {
                 return true;
             }else{
                 if( $this->verbose ){
-                    printf( 'INFO: time %s within threshold %s, proceeding for %s %s'.PHP_EOL,
+                    $this->log( 'INFO','time %s within threshold %s, proceeding for %s %s',
                             date("Y-m-d", $time),
                             date("Y-m-d", $time_threshold ),
                             $hours_config_tag ?? '',
@@ -1382,7 +1396,7 @@ class GarminProcess {
                         $ntries = 0;
                     }else{
                         if( $this->verbose ){
-                            print( "Error: Failed to get callback data for $cbid, sleeping $nextwait".PHP_EOL );
+                            $this->log( "ERROR","Failed to get callback data for $cbid, sleeping $nextwait" );
                         }
                         $ntries-=1;
                         if( $ntries > 0 ){
@@ -1404,12 +1418,12 @@ class GarminProcess {
                     );
                     $this->status->record($this->sql, $row );
                     if( $this->verbose ){
-                        print( "Error: Failed repeatedly to get callback data for $cbid, skipping".PHP_EOL );
+                        $this->log( "ERROR","Failed repeatedly to get callback data for $cbid, skipping" );
                     }
                 }else{
                     if( $save_to_s3 ){
                         if( $this->verbose ){
-                            printf( 'S3: save %s to bucket %s'.PHP_EOL, $path, $save_to_s3 );
+                            $this->log( 'S3', 'save %s to bucket %s', $path, $save_to_s3 );
                         }
                         $this->save_to_s3_bucket($save_to_s3,$path,$data);
                         
@@ -1436,7 +1450,7 @@ class GarminProcess {
                         }
                         if( $stmt ){
                             if( $this->verbose ){
-                                printf( 'EXECUTE: %s'.PHP_EOL, $query );
+                                $this->log( 'EXECUTE', $query );
                             }
                             $null = NULL;
                             $stmt->bind_param('bis',$null,$cbid,$table );
@@ -1444,7 +1458,7 @@ class GarminProcess {
                             if (!$stmt->execute()) {
                                 $this->status->error(  "Execute failed: (" . $stmt->errno . ") " . $stmt->error );
                                 if( $this->verbose ){
-                                    printf( 'ERROR: %s [%s] '.PHP_EOL,  $stmt->error, $query);
+                                    $this->log( 'ERROR', "%s [%s]", $stmt->error, $query);
                                 }
                             }
                             $stmt->close();
@@ -1533,7 +1547,7 @@ class GarminProcess {
     function backup_from_s3_bucket($bucket,$path,$s3_bucket){
         
         if( substr($bucket, 0, 10) != 'localhost:' || substr($s3_bucket, 0, 10) == 'localhost:' ){
-            printf( 'ERROR: Expecting to backup s3 bucket (got %s) to a local bucket (got %s)'.PHP_EOL, $s3_bucket, $bucket );
+            $this->log( 'ERROR', 'Expecting to backup s3 bucket (got %s) to a local bucket (got %s)', $s3_bucket, $bucket );
             die;
         }
         
@@ -1554,33 +1568,33 @@ class GarminProcess {
             }
             $bytes = file_put_contents( $target_file, $data );
             if( $bytes=== false ){
-                printf( 'ERROR: Failed to write file %s (%s/%s)'.PHP_EOL, $target_file, $bytes, strlen( $data ) );
+                $this->log( 'ERROR', 'Failed to write file %s (%s/%s)', $target_file, $bytes, strlen( $data ) );
             }
         }
     }
 
     function maintenance_backup_asset_from_s3($limit = 2){
         if( !isset( $this->api_config['backup_from_s3_bucket'] ) ){
-            printf( 'ERROR: backup from s3 bucket not setup in config'.PHP_EOL );
+            $this->log( 'ERROR', 'backup from s3 bucket not setup in config' );
             die;
         }
         $save_to_bucket = $this->api_config['save_to_s3_bucket'];
         $backup_from_bucket = $this->api_config['backup_from_s3_bucket'];
 
-        printf( 'INFO: Backing up from %s to %s'.PHP_EOL, $backup_from_bucket, $save_to_bucket );
+        $this->log( 'INFO','Backing up from %s to %s', $backup_from_bucket, $save_to_bucket );
 
         $query = 'SELECT `path` FROM `assets` WHERE `path` IS NOT NULL ORDER BY asset_id DESC';
 
         $found = $this->sql->query_as_array($query);
-        printf( 'found %d'.PHP_EOL, count( $found ) );
+        $this->log( 'INFO', 'found %d', count( $found ) );
 
         $done = 0;
         $already = 0;
         
         $local_dir = substr( $save_to_bucket, 10 );
         if( ! is_dir( $local_dir ) ){
-           printf( 'ERROR: backup target %s is not a directory'.PHP_EOL, $local_dir );
-           die;
+            $this->log( 'ERROR', 'backup target %s is not a directory', $local_dir );
+            die;
         }
 
         foreach( $found as $row ){
@@ -1594,7 +1608,7 @@ class GarminProcess {
                     $already += 1;
                 }else{
                     if( $limit < 10 || $done % ( $limit/10 ) == 0){
-                        printf( 'Saving %s to %s [%d/%d previous %d]'.PHP_EOL, $path, $local_file, $done, $limit, $already );
+                        $this->log( 'INFO', 'Saving %s to %s [%d/%d previous %d]', $path, $local_file, $done, $limit, $already );
                     }
                     $this->backup_from_s3_bucket($save_to_bucket, $path, $backup_from_bucket );
                     $done += 1;
@@ -1755,7 +1769,7 @@ class GarminProcess {
             }
             if( $moreToDo ){
                 if( $this->verbose ){
-                    printf( 'Requested %s days, Sleeping %s secs', $days, $sleep );
+                    $this->log( 'INFO', 'Requested %s days, Sleeping %s secs', $days, $sleep );
                 }
                 $this->sleep($sleep);
                 $this->exec_backfill_cmd($token_id, $days, $sleep );
@@ -1775,6 +1789,7 @@ class GarminProcess {
         // After sleep, sql connect likely to time out
         $this->sql = new garmin_sql();
         $this->sql->verbose = $this->verbose;
+        $this->sql->start_ts = $this->start_ts;
     }
     
     function maintenance_after_process($table,$row,$json){
@@ -1810,7 +1825,7 @@ class GarminProcess {
                                 if( isset( $child_json['parentSummaryId'] ) && $child_json['parentSummaryId'] == $json['summaryId'] ){
                                     $query = sprintf( "UPDATE `%s` SET parent_activity_id=%d WHERE activity_id = '%s'",  $table, $parent_row['activity_id'], $child_row['activity_id'] );
                                     if( ! $this->sql->execute_query( $query ) ){
-                                        printf( "ERROR %s",  $this->sql->lasterror );
+                                        $this->log( "ERROR", $this->sql->lasterror );
                                     }
                                 }
                             }
@@ -1885,7 +1900,7 @@ class GarminProcess {
             if( count( $to_set ) ){
                 $query = sprintf( "UPDATE `%s` SET %s WHERE summaryId = '%s'".PHP_EOL,  $table, implode( ', ', $to_set), $row['summaryId'] );
                 if( ! $this->sql->execute_query( $query ) ){
-                    printf( "ERROR %s",  $this->sql->lasterror );
+                    $this->log( "ERROR",  $this->sql->lasterror );
                 }
             }
         }
@@ -1938,7 +1953,7 @@ class GarminProcess {
             $this->exec_callback_cmd('fitfiles', $command_ids );
         }else{
             if( $this->verbose ){
-                printf( 'No missing callback found'.PHP_EOL );
+                $this->log( 'INFO', 'No missing callback found' );
             }
         }
     }
@@ -1966,7 +1981,7 @@ class GarminProcess {
                 $this->sql->execute_query( $query );
             }else{
                 if( $this->verbose ){
-                    printf( 'Missing activity for %s'.PHP_EOL, strftime("%Y-%m-%d, %H:%M:%S", $startTime ) );
+                    $this->log( 'INFO', 'Missing activity for %s', strftime("%Y-%m-%d, %H:%M:%S", $startTime ) );
                 }
                 if( $mintime == NULL ||  $startTime < $mintime ){
                     $mintime = $startTime;
@@ -1978,7 +1993,7 @@ class GarminProcess {
         }
 
         if( count( $res ) > 0){
-            printf( 'Missing %d activities between %s and %s'.PHP_EOL, count( $res ), strftime("%Y-%m-%d", $mintime ), strftime("%Y-%m-%d", $maxtime ) );
+            $this->log( 'INFO' , 'Missing %d activities between %s and %s', count( $res ), strftime("%Y-%m-%d", $mintime ), strftime("%Y-%m-%d", $maxtime ) );
             $endtime = $mintime + (24*60*60*90); // 90 is per max throttle from garmin
             $url = sprintf( $this->api_config['url_backfill_activities'], $mintime, $endtime );
             $user = $this->user_info_for_token_id( 1 );
@@ -2002,18 +2017,18 @@ class GarminProcess {
             $first_cs_user_id = intval($user['MAX(cs_user_id)'])+1;
         }
 
-        printf( 'Processing %d users from %d to %d'.PHP_EOL,$limit, $first_cs_user_id, $last_user );
+        $this->log( 'INFO', 'Processing %d users from %d to %d',$limit, $first_cs_user_id, $last_user );
         $done = 0;
 
         for( $cs_user_id = $first_cs_user_id; ($cs_user_id < $last_user && $done < $limit ); $cs_user_id++){
             if( $this->user_is_active( $cs_user_id ) ){
                 $done += 1;
-                printf( 'processing user %d [done %d/%d]'.PHP_EOL,$cs_user_id, $done, $limit );
+                $this->log('INFO', 'processing user %d [done %d/%d]',$cs_user_id, $done, $limit );
 
                 $this->maintenance_s3_upload_backup_assets_for_user( $cs_user_id );
                 $this->sql->execute_query( sprintf('INSERT INTO upload_bad_files (cs_user_id) VALUES(%d)',$cs_user_id) );
             }else{
-                printf( 'skipping user %d'.PHP_EOL,$cs_user_id );
+                $this->log('INFO', 'skipping user %d',$cs_user_id );
             }                
         }
     }
@@ -2033,10 +2048,10 @@ class GarminProcess {
                     $s3_data = $this->save_to_s3_bucket( $s3_bucket, $s3_path, $row['data']);
                     
                           
-                    printf( 'Uploading %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.'.PHP_EOL, $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
+                    $this->log( 'INFO', 'Uploading %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes s3: %s bytes.', $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ), strlen( $s3_data ));
 
                 }else{
-                    printf( 'Skipping %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes'.PHP_EOL, $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ) );
+                    $this->log( 'INFO', 'Skipping %s. startTimeInSeconds=%s cs_user_id=%d asset_id=%d file_id=%d mysql: %s bytes', $s3_path, $time, $cs_user_id, $row['asset_id'], $row['file_id'], strlen( $row['data'] ) );
                 }
             }
         }
@@ -2052,24 +2067,24 @@ class GarminProcess {
         }
 
         if( ! isset($this->api_config['save_to_s3_bucket'] ) ){
-            printf( 'no bucket defined'.PHP_EOL);
+            $this->log( 'WARNING', 'no bucket defined');
             return;
         }
         $s3_bucket = $this->api_config['save_to_s3_bucket'];
-        printf( 'migrating from %s to %s using bucket %s'.PHP_EOL, $start, $start + $limit, $s3_bucket );
+        $this->log( 'INFO', 'migrating from %s to %s using bucket %s', $start, $start + $limit, $s3_bucket );
         
         for( $cache_id = $start; $cache_id < $start+$limit; $cache_id++){
             
             $row = $this->sql->query_first_row( sprintf( 'SELECT * FROM assets WHERE asset_id = %s', $cache_id ) );
             if( $row ){
-                printf( 'Processing asset_id=%d'.PHP_EOL, $cache_id);
+                $this->log( 'INFO', 'Processing asset_id=%d', $cache_id);
                 if( strlen( $row['path'] ) > 0 && substr( $row['path'], 0, 3 )== 's3:'){
-                    printf( 'already in c3 asset_id=%d'.PHP_EOL, $cache_id);
+                    $this->log('INFO', 'already in c3 asset_id=%d', $cache_id);
                 } else if( strlen( $row['data'] ) > 0 ){
                     $arow = $this->sql->query_first_row( sprintf( 'SELECT * FROM fitfiles WHERE file_id = %s', $row['file_id'] ) );
                     if( isset( $arow['cs_user_id'] ) ){
                         $path = $this->file_path_for_file_row( $arow );
-                        printf( 'Uploading %s bytes asset_id=%d file_id=%d'.PHP_EOL, strlen( $row['data'] ), $cache_id, $row['file_id']);
+                        $this->log( 'INFO', 'Uploading %s bytes asset_id=%d file_id=%d', strlen( $row['data'] ), $cache_id, $row['file_id']);
                         $row['path'] = 's3:' . $path;
                         $row['filename'] = basename( $path );
                         $this->save_to_s3_bucket( $s3_bucket, $path, $row['data'] );
@@ -2089,7 +2104,7 @@ class GarminProcess {
             $max = $this->sql->query_first_row( $query );
             if( isset( $max['maxkey'] ) ){
                 if( intval( $max['maxkey'] ) <= intval($key_start) ){
-                    print( '-- nothing new'.PHP_EOL );
+                    $this->log( 'INFO', '-- nothing new' );
                     return true;
                 }
             }
@@ -2161,12 +2176,12 @@ class GarminProcess {
             $database = $this->api_config['database'];
             $url_src = $this->api_config['url_backup_source'];
             $url = sprintf( '%s/api/garmin/backup?database=%s&table=%s&%s=%s', $url_src, $database, $table, $key, $last_key  );
-            printf( 'CURL: %s'.PHP_EOL,  $url );
+            $this->log( 'CURL',  $url );
 
             $backup_dir = sprintf( '%s/%s', $backup_path, strftime( '%Y/%m' ) );
             if( ! is_dir( $backup_dir ) ){
                 if( ! mkdir( $backup_dir, 0755, true ) ){
-                    printf( "ERROR: failed to create directory %s", $backup_dir );
+                    $this->log( "ERROR","failed to create directory %s", $backup_dir );
                     die;
                 }
             }
@@ -2175,16 +2190,16 @@ class GarminProcess {
 
             $outsize = filesize( $sql_out );
             if( $outsize > 20 ){
-                printf( 'OUT:  Got new data for %s (%d bytes)'.PHP_EOL, $table, $outsize );
+                $this->log( 'OUT','Got new data for %s (%d bytes)', $table, $outsize );
                 $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
                 file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
                 chmod( $defaults, 0600 );
                 $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
-                printf( 'EXEC: %s'.PHP_EOL,  $command );
+                $this->log( 'EXEC',  $command );
                 system(  $command );
                 $newdata = true;
             }else{
-                printf( "OUT:  Nothing New for %s".PHP_EOL, $table );
+                $this->log( "OUT", "Nothing New for %s", $table );
             }
         }
         return $newdata;
@@ -2199,7 +2214,7 @@ class GarminProcess {
                     $s3_path = substr( $row['path'], 3, strlen( $row['path'] ) );
                     
                     if( $this->verbose ){
-                        printf( 'Retrieve %s from s3 bucket %s'.PHP_EOL, $s3_path, $s3_bucket);
+                        $this->log( 'S3', 'Retrieve %s from s3 bucket %s', $s3_path, $s3_bucket);
                     }
                 
                     $rv = $this->retrieve_from_s3_bucket( $s3_bucket, $s3_path);
@@ -2220,8 +2235,8 @@ class GarminProcess {
         }else{
             $query = sprintf( "SELECT activity_id,data,path FROM activities, assets WHERE activities.file_id = assets.file_id AND %s %s", $paging->activities_where(), $paging->activities_paging() );
         }
-        if( $this->sql->verbose ){
-            printf( 'EXECUTE: %s'.PHP_EOL, $query );
+        if( $this->verbose ){
+            $this->log( 'EXECUTE', $query );
         }
         $stmt = $this->sql->connection->query($query);
         
@@ -2255,7 +2270,7 @@ class GarminProcess {
 
             $rv = file_get_contents( $zipname );
             if( $this->verbose ){
-                printf( 'INFO: using zip file %s (%d bytes)'.PHP_EOL, $zipname, strlen( $rv ) );
+                $this->log( 'INFO','using zip file %s (%d bytes)', $zipname, strlen( $rv ) );
             }
             unlink( $zipname );
         }

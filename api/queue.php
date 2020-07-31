@@ -108,6 +108,16 @@ class Queue {
         $this->sql->verbose = $flag;
     }
     
+    function log(){
+        $args = func_get_args();
+        $tag = array_shift( $args );
+        $fmt = array_shift( $args );
+
+        $msg = vsprintf( $fmt, $args );
+        
+        printf( "%s:%s: %s".PHP_EOL, date("Y-m-d h:i:s"), $tag, $msg );
+    }
+   
     function ensure_schema() {
         $schema_version = 2;
         $schema = array(
@@ -201,7 +211,7 @@ class Queue {
                 $command = sprintf( '%s > /dev/null 2> /dev/null', $row['task_command'] );
             }
             if( $this->verbose ){
-                printf( 'EXEC: %s'.PHP_EOL, $command );
+                $this->log( 'EXEC', $command );
             }
             $output = NULL;
             $status = 0;
@@ -212,10 +222,10 @@ class Queue {
             exec( $command, $output, $status );
             $elapsed = time() - $time;
             if( $this->verbose ){
-                printf( 'DONE: (%d secs) %s'.PHP_EOL, $elapsed, $command );
+                $this->log( 'DONE','(%d secs) %s', $elapsed, $command );
             }
             if( $elapsed > 30 ){
-                print( 'TIME: reconnecting mysql'.PHP_EOL );
+                $this->log( 'TIME', 'reconnecting mysql' );
                 // Restart new connection to avoid time out
                 $this->sql = new queue_sql();
             }
@@ -224,12 +234,12 @@ class Queue {
             }
             $query = sprintf( 'UPDATE tasks SET finished_ts = FROM_UNIXTIME(%d), queue_id = %d, exec_status = %d WHERE task_id = %d', time(), $this->queue_id, $status, $task_id);
             if( !$this->sql->execute_query( $query ) ){
-                printf( "ERROR: %s %s".PHP_EOL, $query, $this->sql->lasterror );
+                $this->log( "ERROR", "%s %s", $query, $this->sql->lasterror );
             }
             $this->completed += 1;
             $this->last_completed_ts = time();
             if( $this->verbose ){
-                printf( 'MARK: %s'.PHP_EOL, $query );
+                $this->log( 'MARK', $query );
             }
             $done = true;
         }
@@ -335,7 +345,7 @@ class Queue {
         
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
-                printf( 'Starting queue_id=%d index=%d pid=%d'.PHP_EOL, $this->queue_id, $queue_index, getmypid() );
+                $this->log( 'START', 'Starting queue_id=%d index=%d pid=%d'.PHP_EOL, $this->queue_id, $queue_index, getmypid() );
             }
             $execution_mode = false;
             
@@ -350,7 +360,7 @@ class Queue {
                     if( $execution_mode ){
                         $execution_mode = false;
                         if( $this->verbose ){
-                            printf( 'WAIT: no more tasks, starting sleep cycle'.PHP_EOL );
+                            $this->log( 'WAIT','no more tasks, starting sleep cycle' );
                         }
                     }
                     sleep( $this->queue_sleep );
@@ -376,7 +386,7 @@ class Queue {
                     $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:timeout', queue_pid = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );
                     if( isset( $heartbeat['queue_pid'] ) ){
                         $cmd = sprintf( 'kill -9 %d > /dev/null 2>&1', intval( $heartbeat['queue_pid'] ) );
-                        printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
+                        $this->log( 'KILL', 'Queue %d: %s', $queue_index, $cmd );
                         exec( $cmd );
                     }
                     $queue_need_restart = true;
@@ -408,17 +418,17 @@ class Queue {
                             $description = $this->heartbeat_queue_description( $queue_index, $heartbeat );
                         }
                         
-                        printf( 'RESTART: %s'.PHP_EOL, $description);
+                        $this->log( 'RESTART',$description);
                     }
                 }else{
-                    printf( 'START:   %s'.PHP_EOL, $description);
+                    $this->log( 'START', $description);
                 
                     $queue_id = $this->create_queue( $queue_index );
                     $this->exec_queue( $queue_index, $queue_id );
 
                 }
             }else{
-                printf( 'RUNNING: %s'.PHP_EOL, $description);
+                $this->log( 'RUNNING', $description);
             }
         }
     }
@@ -501,7 +511,7 @@ class Queue {
                 unset( $this->processes );
             }
             if( $display ){
-                printf( "Couldn't run /bin/ps ret = %s".PHP_EOL, $rv );
+                $this->log( 'ERROR', "Couldn't run /bin/ps ret = %s", $rv );
             }
         }
         return( $processes );
@@ -566,7 +576,7 @@ class Queue {
             $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_id );
         }
         if( $this->verbose ){
-            printf( 'Exec %s'.PHP_EOL, $command );
+            $this->log( 'EXEC', $command );
         }
         exec( $command );
     }

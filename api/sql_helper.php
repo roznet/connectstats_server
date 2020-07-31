@@ -303,16 +303,31 @@ class sql_helper {
         $this->query_close();
         return $rv;
 	}
+
+    function log(){
+        if( !isset( $this->start_ts ) ){
+            $this->start_ts = microtime(true);
+        }
+        
+        $args = func_get_args();
+        $tag = array_shift( $args );
+        $fmt = array_shift( $args );
+
+        $msg = vsprintf( $fmt, $args );
+        
+        printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
+    }
+    
 	function query_init( $query ){
 		$this->current_query_str = $query; // for ref
 		$this->lasterror = NULL;
 		$this->current_query = $this->connection->query( $query );
         if( $this->verbose ){
-            printf( "EXECUTE: %s".PHP_EOL, $query );
+            $this->log('EXECUTE', $query );
         }
         if( $this->verbose ){
             if( ! $this->current_query ){
-                printf( "ERROR: %s">PHP_EOL, $this->connection->error );
+                $this->log('ERROR', $this->connection->error );
             }
 			$this->lasterror = $this->connection->error;
 		};
@@ -377,8 +392,7 @@ class sql_helper {
                     $candidate = strtoupper( str_replace( ' AUTO_INCREMENT', '', $candidate ) );
                     if( $existing != $candidate ){
                         if( $this->verbose ){
-
-                            printf( "INFO: %s.%s: [%s] != [%s]\n", $table, $col, $existing, $candidate );
+                            $this->log( 'INFO', "%s.%s: [%s] != [%s]", $table, $col, $existing, $candidate );
                         }
                         $query = sprintf( 'ALTER TABLE `%s` CHANGE COLUMN `%s` `%s` %s', $table, $col, $col, $candidate );
                         $this->execute_query( $query );
@@ -424,17 +438,17 @@ class sql_helper {
 	function execute_query( $query ){
 		$result = true;
 		if( $this->readOnly ){
-			printf( "READONLY: %s\n", $query );
+            $this->log('READONLY', $query );
 		}else{
 			if( $this->verbose ){
-				printf( "EXECUTE: %s\n", $query );
+                $this->log('EXECUTE', $query );
 			};
 			$this->current_query_str = $query;
 			$result = $this->connection->query( $query );
 			if( ! $result ) {
 				$this->lasterror = $this->connection->error;
 				if( $this->verbose ){
-                    printf( "ERROR: %s\n", $this->lasterror );
+                    $this->log('ERROR', $this->lasterror );
 				}
 			};
 		}
@@ -498,6 +512,9 @@ class sql_helper {
         $rv = false;
 		$query = sprintf( "SHOW TABLE STATUS like '%s'", $table );
 		$stmt = $this->connection->prepare( $query );
+        if( $this->verbose ){
+            $this->log( "EXECUTED", $query );
+        }
         if( $stmt ){
             $stmt->execute();
             $stmt->store_result();
@@ -505,7 +522,7 @@ class sql_helper {
             $stmt->close();
         }else{
             if( $this->verbose ){
-                printf( "ERROR: $query %s", $this->connection->error );
+                $this->log( "ERROR", $this->connection->error );
             }
         }
         return $rv;

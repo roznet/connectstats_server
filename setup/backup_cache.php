@@ -41,7 +41,7 @@ error_reporting(E_ALL);
  *
  */
 include_once( '../api/shared.php' );
-ini_set('memory_limit', '1024M'); // or you could use 1G
+ini_set('memory_limit', '4096M'); // or you could use 1G
 
 /*
  * Only backup from the cache and tokens/users, the rest will be recreated
@@ -85,7 +85,7 @@ if( $newdata ){
 if( true ) {
     $process->set_verbose( true );
 
-    $last_backup = $process->sql->query_first_row( 'SELECT MAX(activities_cache_id) AS activities_cache_id, MAX(fitfiles_cache_id) AS fitfiles_cache_id FROM backup_info' );
+    $last_backup = $process->sql->query_first_row( 'SELECT MAX(activities_cache_id) AS activities_cache_id, MAX(fitfiles_cache_id) AS fitfiles_cache_id, MAX(fitfiles_url_fixed_cache_id) AS fitfiles_url_fixed_cache_id FROM backup_info' );
     $activities_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_activities' );
     $fitfiles_latest = $process->sql->query_first_row( 'SELECT MAX(cache_id) AS cache_id FROM cache_fitfiles' );
 
@@ -95,8 +95,11 @@ if( true ) {
     $activities_cache_id_to = $activities_latest['cache_id'] ?? 0;
     $fitfiles_cache_id_to = $fitfiles_latest['cache_id'] ?? 0;
 
-    printf( 'Updating cache activities %d -> %d'.PHP_EOL, $activities_cache_id_from, $activities_cache_id_to );
-    printf( 'Updating cache fitfiles %d -> %d'.PHP_EOL, $fitfiles_cache_id_from, $fitfiles_cache_id_to );
+    $fitfiles_url_fixed_cache_id = $last_backup['fitfiles_url_fixed_cache_id'];
+
+    $process->log( 'UPDATING', 'cache activities %d -> %d', $activities_cache_id_from, $activities_cache_id_to );
+    $process->log( 'UPDATING', 'cache fitfiles %d -> %d', $fitfiles_cache_id_from, $fitfiles_cache_id_to );
+    $process->log( 'UPDATING', 'url in cache fitfiles from %d', $fitfiles_url_fixed_cache_id);
 
     $query = sprintf( 'UPDATE cache_activities SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $activities_cache_id_from );
     $process->sql->execute_query(  $query );
@@ -104,34 +107,55 @@ if( true ) {
     $query = sprintf( 'UPDATE cache_fitfiles SET started_ts = NULL, processed_ts = NULL WHERE cache_id > %d', $fitfiles_cache_id_from );
     $process->sql->execute_query(  $query );
 
-    $query = sprintf( 'SELECT * FROM cache_fitfiles WHERE cache_id > %s', $fitfiles_cache_id_from );
+    $max = 250000;
+    
+    $query = sprintf( 'SELECT * FROM cache_fitfiles WHERE cache_id > %s LIMIT %d', $fitfiles_url_fixed_cache_id, $max );
 
     $results = $process->sql->execute_query( $query );
 
     $process->set_verbose( false );
 
     $i = 0;
+    $report_i = $max/10;
+
+    $updated = 0;
+    
     foreach( $results as $row ){
         $json = json_decode( $row['json'], true );
+        if( $i % $report_i == 0){
+            $process->log( 'UPDATING', 'url in fitfiles cache %d updated %d reached %d', $i, $updated, $fitfiles_url_fixed_cache_id );
+        }
         if( isset( $json['activityFiles' ]) ) {
             $list = $json['activityFiles'];
             $newlist = array();
             $f = 0;
+            $require_save = false;
             foreach( $list as $one ){
                 if( isset( $one['callbackURL'] ) && isset( $one['summaryId'] ) ){
                     $callbackURL = sprintf( '%s/api/connectstats/sync?summary_id=%d&table=fitfiles', $process->api_config['url_backup_source'], $one['summaryId'] );
-                    $one['callbackURL'] = $callbackURL;
+                    if( $one['callbackURL'] != $callbackURL ){
+                        $one['callbackURL'] = $callbackURL;
+                        $require_save = true;
+                    }
                 }
                 array_push( $newlist, $one );
             }
-            $json['activityFiles'] = $newlist;
-            $row['json'] = json_encode( $json );
-            $process->sql->insert_or_update( 'cache_fitfiles', $row, array( 'cache_id' ) );
+            if( $require_save ){
+                $json['activityFiles'] = $newlist;
+                $row['json'] = json_encode( $json );
+                $process->sql->insert_or_update( 'cache_fitfiles', $row, array( 'cache_id' ) );
+                $updated ++;
+            }
+            if( intval( $row['cache_id'] ) > $fitfiles_url_fixed_cache_id ){
+                $fitfiles_url_fixed_cache_id = intval($row['cache_id']);
+            }
             $i++;
         }
     }
 
-    $process->sql->insert_or_update( 'backup_info', array( 'activities_cache_id' => $activities_cache_id_to, 'fitfiles_cache_id' => $fitfiles_cache_id_to ) );
+    $process->log( 'UPDATED', 'url in fitfiles cache %d updated %d reached %d', $i, $updated, $fitfiles_url_fixed_cache_id );
+    $process->sql->verbose = true;
+    $process->sql->insert_or_update( 'backup_info', array( 'activities_cache_id' => $activities_cache_id_to, 'fitfiles_cache_id' => $fitfiles_cache_id_to, 'fitfiles_url_fixed_cache_id' => $fitfiles_url_fixed_cache_id ) );
 }
  
 ?>
