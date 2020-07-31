@@ -78,12 +78,15 @@ SELECT cs_user_id, MAX(ts) AS `last`, MIN(ts) AS `first`, TIMEDIFF(MAX(ts),MIN(t
 CREATE INDEX assets_file_id_index ON assets (file_id);
 
 CREATE INDEX fitfiles_startTimeInSeconds_index ON fitfiles (startTimeInSeconds);
+CREATE INDEX fitfiles_summaryId_index ON fitfiles (summaryId);
+
 CREATE INDEX activities_startTimeInSeconds_index ON activities (startTimeInSeconds);
 CREATE INDEX activities_cs_user_id ON activities (cs_user_id);
 
 CREATE INDEX tokens_userAccess ON tokens (userAccessToken);
 CREATE INDEX activities_summaryId ON activities ( summaryId );
 
+CREATE INDEX usage_ts_index ON `usage` (ts);
 ```
 
 ## user_info, authenticate_header()
