@@ -95,7 +95,7 @@ if( true ) {
     $activities_cache_id_to = $activities_latest['cache_id'] ?? 0;
     $fitfiles_cache_id_to = $fitfiles_latest['cache_id'] ?? 0;
 
-    $fitfiles_url_fixed_cache_id = $last_backup['fitfiles_url_fixed_cache_id'];
+    $fitfiles_url_fixed_cache_id = intval($last_backup['fitfiles_url_fixed_cache_id']);
 
     $process->log( 'UPDATING', 'cache activities %d -> %d', $activities_cache_id_from, $activities_cache_id_to );
     $process->log( 'UPDATING', 'cache fitfiles %d -> %d', $fitfiles_cache_id_from, $fitfiles_cache_id_to );

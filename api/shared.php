@@ -1395,6 +1395,7 @@ class GarminProcess {
                     if( $data && $this->validate_fit_file($data) ){
                         $ntries = 0;
                     }else{
+                        $data = false;
                         if( $this->verbose ){
                             $this->log( "ERROR","Failed to get callback data for $cbid, sleeping $nextwait" );
                         }
