@@ -2104,7 +2104,8 @@ class GarminProcess {
             $max = $this->sql->query_first_row( $query );
             if( isset( $max['maxkey'] ) ){
                 if( intval( $max['maxkey'] ) <= intval($key_start) ){
-                    $this->log( 'INFO', '-- nothing new' );
+                    # this is printed to mysql so -- as comment
+                    $this->log( '-- INFO', 'new' );
                     return true;
                 }
             }
