@@ -102,6 +102,20 @@ class StatusCollector {
         $this->messages = array();
     }
     
+    function log(){
+        if( !isset( $this->start_ts ) ){
+            $this->start_ts = microtime(true);
+        }
+        
+        $args = func_get_args();
+        $tag = array_shift( $args );
+        $fmt = array_shift( $args );
+
+        $msg = vsprintf( $fmt, $args );
+        
+        printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
+    }
+    
     function error( $msg ){
         if( $this->verbose ){
             $this->log( "ERROR", $msg );
