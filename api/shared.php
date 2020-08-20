@@ -636,6 +636,19 @@ class GarminProcess {
         return $rv;
     }
 
+    function create_active_users(){
+        $this->log( 'INFO', 'Create active Users Table' );
+        $query = "DROP TABLE IF EXISTS users_active";
+        $this->sql->execute_query( $query );
+        $query = "CREATE TABLE users_active (cs_user_id BIGINT(20) UNSIGNED PRIMARY KEY, cnt BIGINT(20) UNSIGNED, last_ts TIMESTAMP, first_ts TIMESTAMP)";
+        $this->sql->execute_query( $query );
+        $query = "INSERT INTO users_active SELECT cs_user_id,COUNT(*) AS cnt,MAX(ts) AS last_ts,MIN(ts) AS first_ts FROM `usage` GROUP BY cs_user_id ORDER BY last_ts DESC";
+        $this->sql->execute_query( $query );
+        $query = "SELECT * FROM users_active";
+        $rv = $this->sql->query_as_array( $query );
+        return $rv;
+    }        
+    
     function user_is_active( $cs_user_id ){
         $query = sprintf( "SELECT * FROM `usage` WHERE ts > NOW() - INTERVAL 45 DAY AND cs_user_id = %d LIMIT 1", $cs_user_id );
         $rv = $this->sql->query_first_row( $query );
@@ -1596,9 +1609,11 @@ class GarminProcess {
         $save_to_bucket = $this->api_config['save_to_s3_bucket'];
         $backup_from_bucket = $this->api_config['backup_from_s3_bucket'];
 
+        $this->create_active_users();
+        
         $this->log( 'INFO','Backing up from %s to %s', $backup_from_bucket, $save_to_bucket );
 
-        $query = 'SELECT `path` FROM `assets` WHERE `path` IS NOT NULL ORDER BY asset_id DESC';
+        $query = 'SELECT `path` FROM `assets` a, `fitfiles` f, `users_active` u WHERE `path` IS NOT NULL AND f.asset_id = a.asset_id AND u.cs_user_id = f.cs_user_id AND u.last_ts > NOW() - INTERVAL 45 DAY ORDER BY a.asset_id DESC';
 
         $found = $this->sql->query_as_array($query);
         $this->log( 'INFO', 'found %d', count( $found ) );
