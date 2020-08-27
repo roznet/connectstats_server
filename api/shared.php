@@ -110,6 +110,20 @@ class StatusCollector {
         $this->messages = array();
     }
     
+    function log(){
+        if( !isset( $this->start_ts ) ){
+            $this->start_ts = microtime(true);
+        }
+        
+        $args = func_get_args();
+        $tag = array_shift( $args );
+        $fmt = array_shift( $args );
+
+        $msg = vsprintf( $fmt, $args );
+        
+        printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
+    }
+    
     function error( $msg ){
         if( $this->verbose ){
             $this->log( "ERROR", $msg );
@@ -340,6 +354,7 @@ class GarminProcess {
         $this->sql->verbose = false;
         $this->verbose = false;
         $this->status = new StatusCollector();
+
         if( isset($_GET['verbose']) && $_GET['verbose']==1){
             $this->set_verbose( true );
         }
@@ -630,6 +645,19 @@ class GarminProcess {
         return $rv;
     }
 
+    function create_active_users(){
+        $this->log( 'INFO', 'Create active Users Table' );
+        $query = "DROP TABLE IF EXISTS users_active";
+        $this->sql->execute_query( $query );
+        $query = "CREATE TABLE users_active (cs_user_id BIGINT(20) UNSIGNED PRIMARY KEY, cnt BIGINT(20) UNSIGNED, last_ts TIMESTAMP, first_ts TIMESTAMP)";
+        $this->sql->execute_query( $query );
+        $query = "INSERT INTO users_active SELECT cs_user_id,COUNT(*) AS cnt,MAX(ts) AS last_ts,MIN(ts) AS first_ts FROM `usage` GROUP BY cs_user_id ORDER BY last_ts DESC";
+        $this->sql->execute_query( $query );
+        $query = "SELECT * FROM users_active";
+        $rv = $this->sql->query_as_array( $query );
+        return $rv;
+    }        
+    
     function user_is_active( $cs_user_id ){
         $query = sprintf( "SELECT * FROM `usage` WHERE ts > NOW() - INTERVAL 45 DAY AND cs_user_id = %d LIMIT 1", $cs_user_id );
         $rv = $this->sql->query_first_row( $query );
@@ -1591,9 +1619,11 @@ class GarminProcess {
         $save_to_bucket = $this->api_config['save_to_s3_bucket'];
         $backup_from_bucket = $this->api_config['backup_from_s3_bucket'];
 
+        $this->create_active_users();
+        
         $this->log( 'INFO','Backing up from %s to %s', $backup_from_bucket, $save_to_bucket );
 
-        $query = 'SELECT `path` FROM `assets` WHERE `path` IS NOT NULL ORDER BY asset_id DESC';
+        $query = 'SELECT `path` FROM `assets` a, `fitfiles` f, `users_active` u WHERE `path` IS NOT NULL AND f.asset_id = a.asset_id AND u.cs_user_id = f.cs_user_id AND u.last_ts > NOW() - INTERVAL 45 DAY ORDER BY a.asset_id DESC';
 
         $found = $this->sql->query_as_array($query);
         $this->log( 'INFO', 'found %d', count( $found ) );
@@ -2108,22 +2138,26 @@ class GarminProcess {
     
     function maintenance_export_table( $table, $key, $key_start ){
         $done = false;
-        if( is_writable( 'tmp' ) ){
+
+	    $tmp_path = $this->maintenance_writable_path('tmp');
+
+        if( is_writable( $tmp_path ) ){
             // Make sure there is anything to do
             $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM `%s`', $key, $table );
             $max = $this->sql->query_first_row( $query );
             if( isset( $max['maxkey'] ) ){
                 if( intval( $max['maxkey'] ) <= intval($key_start) ){
-                    $this->log( 'INFO', '-- nothing new' );
+                    # this is printed to mysql so -- as comment
+                    $this->log( '-- INFO', 'new' );
                     return true;
                 }
             }
 
             
             $db = $this->api_config['database'];
-            $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
-            $logfile = sprintf( 'log/%s_%s.log', $table, $key_start );
-            $defaults = sprintf( 'tmp/.%s.cnf', $db );
+            $outfile = sprintf( '%s/%s_%s.sql', $tmp_path, $table, $key_start );
+            $logfile = sprintf( '%s/%s_%s.log', $tmp_path, $table, $key_start );
+            $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $db );
             file_put_contents( $defaults, sprintf( '[mysqldump]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $limit = '';
@@ -2159,6 +2193,10 @@ class GarminProcess {
                 }
                 $done = true;
                 unlink( $outfile );
+            }
+        }else{
+            if( $this->verbose ){
+                $this->log( 'ERROR', 'Cannot write to tmp path %s from %s', $tmp_path, getcwd() );
             }
         }
         return $done;
@@ -2430,3 +2468,4 @@ class GarminProcess {
 };
     
 ?>
+
