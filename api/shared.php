@@ -346,6 +346,7 @@ class GarminProcess {
         $this->sql->verbose = false;
         $this->verbose = false;
         $this->status = new StatusCollector();
+
         if( isset($_GET['verbose']) && $_GET['verbose']==1){
             $this->set_verbose( true );
         }
@@ -2128,7 +2129,10 @@ class GarminProcess {
     
     function maintenance_export_table( $table, $key, $key_start ){
         $done = false;
-        if( is_writable( 'tmp' ) ){
+
+	    $tmp_path = $this->maintenance_writable_path('tmp');
+
+        if( is_writable( $tmp_path ) ){
             // Make sure there is anything to do
             $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM `%s`', $key, $table );
             $max = $this->sql->query_first_row( $query );
@@ -2142,9 +2146,9 @@ class GarminProcess {
 
             
             $db = $this->api_config['database'];
-            $outfile = sprintf( 'tmp/%s_%s.sql', $table, $key_start );
-            $logfile = sprintf( 'log/%s_%s.log', $table, $key_start );
-            $defaults = sprintf( 'tmp/.%s.cnf', $db );
+            $outfile = sprintf( '%s/%s_%s.sql', $tmp_path, $table, $key_start );
+            $logfile = sprintf( '%s/%s_%s.log', $tmp_path, $table, $key_start );
+            $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $db );
             file_put_contents( $defaults, sprintf( '[mysqldump]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $limit = '';
@@ -2180,6 +2184,10 @@ class GarminProcess {
                 }
                 $done = true;
                 unlink( $outfile );
+            }
+        }else{
+            if( $this->verbose ){
+                $this->log( 'ERROR', 'Cannot write to tmp path %s from %s', $tmp_path, getcwd() );
             }
         }
         return $done;
@@ -2451,3 +2459,4 @@ class GarminProcess {
 };
     
 ?>
+
