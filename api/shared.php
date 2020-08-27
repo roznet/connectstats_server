@@ -38,26 +38,34 @@ error_reporting(E_ALL);
  *  3. ConnectStats API: Validate the token id is correct and get information about the user
  *                        uri: api/connectstats/validateuser
  *                        php: validate_user()
- *  4. ConnectStats API: Trigger backfill if necessary
- *                        uri: api/garmin/backfill
- *                        php: backfill_api_entry()
+ *
  *  5. Garmin API:        call garmin api to trigger backfill if necessary. Will trigger call back to `activities` and `file` steps.
  *                        uri: config['url_backfill_activities']
  *                        php: backfill_start_process() calls: run_backfill() in queue/background
  *  6. Garmin API:        Callback from garmin with new activities
  *                        uri: api/garmin/activities
- *                        php: process()
+ *                        php: save_to_cache('activities')
+ *                        desc: save into table cache_activities
+ *                        next: push to the queue 'runactivities.php #insertIdInCache#'
+ *        6.2             run: php runactivities.php #cache_id#
+ *                        php: process('activities', cache_id )
+ *                        desc: update activities table with info in cache_activities @ cache_id, try to link to existing fitfiles
  *  7. Garmin API:        Callback from garmin with new files and callbackURL (one for new activities, multiple for backfill callback)
  *                        uri: api/garmin/file
- *                        php: process() 
- *                        triggers exec_callback_cmd() calls runcallback.php in queue/background
+ *                        php: save_to_cache('fitfiles')
+ *                        desc: update fitfiles table with info in cache_fitfiles @ cache_id, try to link to existing fitfiles
+ *                        next: push to the queue 'runfitfiles.php #insertIdIncache#'
+ *        7.2             run: php runfitfiles.php cache_id
+ *                        php: process('activities', cache_id )
+ *                        next: if callbackURL, will start a runcallback.php file_id to trigger the download
+ *        7.3             run: php runcallback.php file_id
+ *                        php: run_file_callback( 'fitfiles', [ file_id1, file_id2, ... ] )
+ *                        desc: do the callback to the service to get the file and save in assets table reference
+ *        7.4             run: php runfitextract.php file_id
+ *                        desc: if file from active user and valid: extract fit session info and potentially download weather info
+ *                        php: fit_extract( file_id, fit->data_mesgs ) 
+ *                             
  *                        
- *  8. Queue/Background:  runcallback.php calls: run_file_callback()
- *
- *  9. Queue/Background:  runbackfill.php calls: run_backfill()
- *
- * 10. Queue/Background:  runfitextract.php calls: fit_extract()
- *
  * 11. Connectstats API:  Maintenance of the database state 
  *                        uri: api/garmin/maintenance
  *                        Trying to download missing callback calls: maintenance_fix_missing_callback()
@@ -1183,7 +1191,8 @@ class GarminProcess {
      *  if darkSkyNet key exists, try to download weather
      *  Note that if the updated activity is older than $max_hours, 
      *  the weather won't be uploaded
-     *
+     *  Note2: fit_mesgs are passed in as php arrays and assume fit parsing was done before
+     *         so that this library does not need to include the fit library
      */
     function fit_extract( $file_id, $fit_mesgs ){
         // First see if we have correct file_id
