@@ -1339,7 +1339,7 @@ class GarminProcess {
         }
         $retval = 0;
         system( $command, $retval );
-        if( $retval != 0 && $this->verbose){
+         if( $retval != 0 && $this->verbose){
             $this->log( 'ERROR','ret=%d for %s', $retval, $command );
         }
     }
@@ -2086,6 +2086,11 @@ class GarminProcess {
 	    $tmp_path = $this->maintenance_writable_path('tmp');
         $backup_path = $this->maintenance_writable_path('backup_path');
 
+        if( !is_writable( $tmp_path ) || ! is_writable( $backup_path ) ){
+            $this->log( 'WARNING', 'tmp or backup_path not setup and writeable, skipping backup' );
+            return;
+        }
+        
         $newdata = false;
         
         if( isset( $this->api_config['url_backup_source'] ) && is_writable( $tmp_path ) && is_writable( $backup_path )){

@@ -477,8 +477,10 @@ class Queue {
             return sprintf( 'done=%d todo=%d last=%s', $row['total'], $row_outstanding['total'], $row['last'] );
         }else if( isset( $row['last'] ) ){
             return sprintf( 'done=%d last=%s', $row['total'], $row['last'] );
-        }else{
+        }else if( isset( $row['total'] ) ){
             return sprintf( 'done=%d', $row['total'] );
+        }else{
+            return sprintf( 'nothing done' );
         }
     }
 
