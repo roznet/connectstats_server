@@ -1645,8 +1645,8 @@ class GarminProcess {
 
     function maintenance_backup_asset_from_s3($limit = 2){
         if( !isset( $this->api_config['backup_from_s3_bucket'] ) ){
-            $this->log( 'ERROR', 'backup from s3 bucket not setup in config' );
-            die;
+            $this->log( 'WARNING', 'skipping backup from s3 bucket because not setup in config' );
+            return;
         }
         $save_to_bucket = $this->api_config['save_to_s3_bucket'];
         $backup_from_bucket = $this->api_config['backup_from_s3_bucket'];
