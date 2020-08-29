@@ -1128,13 +1128,18 @@ class GarminProcess {
 
         curl_setopt($ch, CURLOPT_URL, $url );
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1 );
-        $headers = [ $this->authorization_header( $url, $userAccessToken, $userAccessTokenSecret ) ];
-
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers );
-
-        if( $this->verbose ){
-            $this->log( 'CURL', $url );
+        if( $userAccessToken && $userAccessTokenSecret ){
+            $headers = [ $this->authorization_header( $url, $userAccessToken, $userAccessTokenSecret ) ];
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers );
+            if ($this->verbose) {
+                $this->log('CURL', 'AuthToken: %s URL: %s', $userAccessToken, $url);
+            }
+        }else{
+            if ($this->verbose) {
+                $this->log('CURL', '%s', $url);
+            }
         }
+
         $data = curl_exec($ch);
         if( $data === false ) {
             $this->status->error( sprintf( 'CURL Failed %s', curl_error($ch ) ) );
@@ -1244,40 +1249,29 @@ class GarminProcess {
                 // We will only query weather for activities that were done less than 24h ago
                 // This is to avoid blast update during backfill
                 if( $lat != 0.0 && $lon != 0.0 &&
-                    isset( $this->api_config['darkSkyKey'] ) &&
                     ! $this->ignore_time_threshold( intval($ts), 'ignore_fitextract_hours_threshold', NULL ) ) {
-
-                    $api_config = $this->api_config['darkSkyKey'];
-                    $url = sprintf( 'https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $api_config, $lat, $lon, $st);
-
-                    $ch = curl_init();
-
-                    curl_setopt($ch, CURLOPT_URL, $url );
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1 );
-
-                    if( $this->verbose ){
-                        $this->log( "CURL", $url );
-                    }
-                    $data = curl_exec($ch);
-                    if( $data === false ) {
-                        $this->status->error( sprintf( 'CURL Failed %s', curl_error($ch ) ) );
-                    }else{
-                        $weather = json_decode( $data, true );
-                        $keep_hourly = array();
-                        if( isset( $weather['hourly']['data'] ) ){
-                            foreach( $weather['hourly']['data'] as $one ){
-                                $cur = $one['time'];
-                                $inside = ($cur > ($st-3600.0)) && ($cur < ($ts+3600.0) );
-                                if( $inside ){
-                                    array_push( $keep_hourly, $one );
-                                }
-                            }
-                            $weather['hourly']['data'] = $keep_hourly;
-
-                            $this->sql->insert_or_update( 'weather', array( 'cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather) ), array( 'file_id' ) );
+                    $weather = array();
+                    if( isset( $this->api_config['darkSkyKey'] ) ){
+                        $darkSky = $this->weather_query_darkSky( $this->api_config['darkSkyKey'], $lat, $lon, $st, $ts );
+                        if( $darkSky ){
+                            $weather['darkSky'] = $darkSky;
                         }
                     }
-                    curl_close($ch);
+                    if( isset( $this->api_config['visualCrossingKey'] ) ){
+                        $visualCrossing = $this->weather_query_visualCrossing( $this->api_config['visualCrossingKey'], $lat, $lon, $st, $ts );
+                        if( $visualCrossing ){
+                            $weather['visualCrossing'] = $visualCrossing;
+                        }
+                    }
+
+                    if( isset( $this->api_config['openWeatherMapKey'] ) ){
+                        $openWeatherMap = $this->weather_query_openWeatherMap( $this->api_config['openWeatherMapKey'], $lat, $lon, $st, $ts );
+                        if( $openWeatherMap ){
+                            $weather['openWeatherMap'] = $openWeatherMap;
+                        }
+                    }
+                    file_put_contents( 'tmp/t.json', json_encode( $weather ) );
+                    $this->sql->insert_or_update('weather', array('cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather)), array('file_id'));
                 }
             }
             if( isset( $fit_mesgs['session'] ) ){
@@ -1286,8 +1280,74 @@ class GarminProcess {
             }
         }
     }
+    function weather_query_visualCrossing( $key, $lat, $lon, $st, $ts )
+    {
+        // https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/history?aggregateHours=1&combinationMethod=aggregate&collectStationContributions=false&maxStations=-1&maxDistance=-1&includeNormals=false&contentType=json&unitGroup=metric&locationMode=single&locations=51.4716,-0.1957&startDateTime=2020-08-27T00%3A00%3A00&endDateTime=2020-08-27T00%3A00%3A00&key={KEY}
+        $datefmt = '%Y-%m-%dT%H:%M:%S';
+        $url = sprintf('https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/history?aggregateHours=1&combinationMethod=aggregate&collectStationContributions=false&maxStations=-1&maxDistance=-1&includeNormals=false&contentType=json&unitGroup=metric&locationMode=single&locations=%f,%f&startDateTime=%s&endDateTime=%s&key=%s',
+                       $lat, $lon, strftime( $datefmt, $st), strftime( $datefmt, $ts), $key);
+        $weather = array();
 
+        $data = $this->get_url_data($url, NULL, NULL);
+        if ($data === false) {
+            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+        } else {
+            $weather = json_decode($data, true);
+        }
+        return ($weather);
+    }
+    
+    function weather_query_openWeatherMap( $key, $lat, $lon, $st, $ts )
+    {
+        // https://api.openweathermap.org/data/2.5/onecall/timemachine?lat=60.99&lon=30.9&dt=1598373599&appid={KEY}
+        $url = sprintf('https://api.openweathermap.org/data/2.5/onecall/timemachine?lat=%f&lon=%f&dt=%d&appid=%s&units=metric',$lat, $lon, $st,  $key );
+        $weather = array();
 
+        $data = $this->get_url_data($url, NULL, NULL);
+        if ($data === false) {
+            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+        } else {
+            $weather = json_decode($data, true);
+            $keep_hourly = array();
+            if (isset($weather['hourly'])) {
+                foreach ($weather['hourly'] as $one) {
+                    $cur = $one['dt'];
+                    $inside = ($cur > ($st - 3600.0)) && ($cur < ($ts + 3600.0));
+                    if ($inside) {
+                        array_push($keep_hourly, $one);
+                    }
+                }
+                $weather['hourly'] = $keep_hourly;
+            }
+        }
+        return ($weather);
+    }
+
+    function weather_query_darkSky( $key, $lat, $lon, $st, $ts )
+    {
+        $url = sprintf('https://api.darksky.net/forecast/%s/%f,%f,%d?units=si&exclude=minutely,flags,alerts,daily', $key, $lat, $lon, $st);
+        $weather = array();
+
+        $data = $this->get_url_data($url, NULL, NULL );
+        if ($data === false) {
+            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+        } else {
+            $weather = json_decode($data, true);
+            $keep_hourly = array();
+            if (isset($weather['hourly']['data'])) {
+                foreach ($weather['hourly']['data'] as $one) {
+                    $cur = $one['time'];
+                    $inside = ($cur > ($st - 3600.0)) && ($cur < ($ts + 3600.0));
+                    if ($inside) {
+                        array_push($keep_hourly, $one);
+                    }
+                }
+                $weather['hourly']['data'] = $keep_hourly;
+            }
+        }
+
+        return ($weather);
+    }
 
     /**
      *    This function is called in the background
@@ -2297,6 +2357,9 @@ class GarminProcess {
                     $onename = sprintf( '%d.fit', isset($results['activity_id']) ? $results['activity_id'] : $results['file_id'] );
                     
                     $rv = $this->data_from_asset_row( $results );
+                    if ($this->verbose) {
+                        $this->log('INFO', 'got fit file %s (%d bytes)', $onename, strlen($rv));
+                    }
                 }else{
                     // If multiple, create zip archive
                     if( ! $zip ){
@@ -2468,4 +2531,3 @@ class GarminProcess {
 };
     
 ?>
-

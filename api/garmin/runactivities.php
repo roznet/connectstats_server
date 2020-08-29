@@ -1,5 +1,5 @@
 <?php
-/**
+/*
  *  MIT Licence
  *
  *  Copyright (c) 2019 Brice Rosenzweig.
@@ -21,13 +21,15 @@
  *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
- *  
+ */
+
+/*
  *
- * This script will process the information saved from a call back by the Garmin Health API
+ * usage: runactivities.php cache_id
  * 
- * This is expected to be called a lot, so should be lightweight and robust
+ *       Arg: cache_id should be a cache_id from the table cache_activities
  *
- * It has to be called by the command line (typically added to the queue)
+ *       Description: will process the informaiton in the cache for activities into activities table
  */
 
 

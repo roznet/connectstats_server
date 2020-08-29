@@ -441,7 +441,11 @@ class sql_helper {
             $this->log('READONLY', $query );
 		}else{
 			if( $this->verbose ){
-                $this->log('EXECUTE', $query );
+                if( strlen( $query ) > 256 ){
+                    $this->log('EXECUTE', '%s [...] %s', substr( $query, 0, 128 ), substr( $query, strlen( $query ) - 128 ) );
+                }else{
+                    $this->log('EXECUTE', '%s', $query );
+                }
 			};
 			$this->current_query_str = $query;
 			$result = $this->connection->query( $query );

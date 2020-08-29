@@ -140,7 +140,8 @@ class ConnectStatsRequest:
             message = http.client.responses[response.status]
             if self.verbose:
                 print( '> Error: {} {}'.format( response.status, message ) )
-            contents = message.encode( 'utf-8' )
+            contents = response.data
+            contents += message.encode( 'utf-8' )
             
         return( contents )
         

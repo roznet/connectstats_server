@@ -1,5 +1,5 @@
 <?php
-/**
+/*
  *  MIT Licence
  *
  *  Copyright (c) 2019 Brice Rosenzweig.
@@ -21,10 +21,17 @@
  *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *  SOFTWARE.
- *  
  *
- *  This is the script that will process and download a file after a push by
- *  the garmin health api. It will get process the file from the cache database
+ */
+
+/*
+ *
+ * usage: runfitfiles.php cache_id
+ * 
+ *       Arg: cache_id should be a cache_id from the table cache_fitfiles
+ *
+ *       Description: will process the informaiton in the cache for files, insert into fitfiles table
+ *                    and trigger the callback download if necessary by calling runcallback.php on file_id for created rows in fitfiles
  */
 
 include_once('../shared.php');
