@@ -365,7 +365,6 @@ class GarminProcess {
         include( 'config.php' );
         $this->api_config = $api_config;
 
-        $this->backfill_disabled = true;
     }
     
     function set_verbose($verbose){
@@ -392,7 +391,7 @@ class GarminProcess {
     function reset_schema() {
         // For development database only
         if( $this->sql->table_exists( 'dev' ) ){
-            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'backfills', 'fitsession', 'weather' );
+            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'fitsession', 'weather' );
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
             }
@@ -432,8 +431,6 @@ class GarminProcess {
             "users" => array(
                 'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
                 'userId' => 'VARCHAR(128)',
-                'backfillEndTime' => 'BIGINT(20) UNSIGNED',
-                'backfillStartTime' => 'BIGINT(20) UNSIGNED',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
@@ -445,8 +442,6 @@ class GarminProcess {
                 'userAccessTokenSecret' => 'VARCHAR(128)',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
-                'backfillStartTime' => 'BIGINT(20) UNSIGNED',
-                'backfillEndTime' => 'BIGINT(20) UNSIGNED'
             ),
             "cache_activities" => array(
                 'cache_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -531,14 +526,6 @@ class GarminProcess {
                 'data' => 'MEDIUMBLOB',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
-            'backfills' => array(
-                'backfill_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
-                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
-                'token_id' => 'BIGINT(20) UNSIGNED',
-                'summaryStartTimeInSeconds' => 'BIGINT(20) UNSIGNED',
-                'summaryEndTimeInSeconds' => 'BIGINT(20) UNSIGNED',
-                'backfillEndTime' => 'BIGINT(20) UNSIGNED'
-            )
         );
         $create = false;
         if( ! $this->sql->table_exists('schema') ){
@@ -879,13 +866,13 @@ class GarminProcess {
                 $this->log( 'QUEUE',  'Add task `%s`'.PHP_EOL, $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
-                $file_lock = 'log/start_lock';
+                $file_lock = sprintf( '%s/start_lock', $this->maintenance_writable_path('log') );
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
                     if( $this->verbose ){
                         $this->log( 'QUEUE',  'Starting Queue, last start %d secs ago', abs( time() - filemtime( $file_lock ) ));
                     }
                     touch( $file_lock );
-                    exec( '(cd ../queue;php queuectl.php start) > log/start_queue.log &' );
+                    exec( sprintf( '(cd ../queue;php queuectl.php start) > %s/start_queue.log &', $this->maintenance_writable_path('log') ) );
                 }else{
                     if( $this->verbose ){
                         $this->log( 'QUEUE',  'Start Skip: last start %d secs ago', abs( time() - filemtime( $file_lock ) ) );
@@ -903,8 +890,9 @@ class GarminProcess {
     }
     
     function exec_activities_cmd( $table, $last_insert_id ){
-        if( is_writable( 'log' ) ){
-            $logfile = sprintf( 'log/process_%s_%d_%s.log', $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
+        $logpath = $this->maintenance_writable_path( 'log' );
+        if( is_writable( $logpath ) ){
+            $logfile = sprintf( '%s/process_%s_%d_%s.log', $logpath, $table, $last_insert_id, strftime( '%Y%m%d_%H%M%S',time() ) );
             $command = sprintf( 'php run%s.php %d', $table, $last_insert_id );
         }else{
             $logfile = '/dev/null';
@@ -914,17 +902,6 @@ class GarminProcess {
             $this->log( 'EXEC', $command );
         }
         $this->exec( $command, $logfile );
-    }
-    
-    function exec_backfill_cmd( $token_id, $days, $sleep ){
-        if( is_writable( 'log' ) ){
-            $log = sprintf( 'log/backfill_%d_%s', $token_id, strftime( '%Y%m%d_%H%M%S',time() ) );
-            $command = sprintf( 'php runbackfill.php %s %s %s', $token_id, $days, $sleep );
-        }else{
-            $log = '/dev/null';
-            $command = sprintf( 'php runbackfill.php %s %s %s', $token_id, $days, $sleep );
-        }
-        $this->exec( $command, $log );
     }
     
     function exec_callback_cmd( $table, $command_ids ){
@@ -1157,11 +1134,6 @@ class GarminProcess {
         $user = $this->user_info_for_token_id($token_id);
         unset( $user['userAccessTokenSecret'] );
 
-        // Pretend backfill was done
-        if( $this->backfill_disabled ){
-            $user['backfillEndTime'] = time();
-            $user['backfillStartTime'] = time();
-        }
         return $user;
     }
 
@@ -1270,7 +1242,7 @@ class GarminProcess {
                             $weather['openWeatherMap'] = $openWeatherMap;
                         }
                     }
-                    file_put_contents( 'tmp/t.json', json_encode( $weather ) );
+
                     $this->sql->insert_or_update('weather', array('cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather)), array('file_id'));
                 }
             }
@@ -1720,170 +1692,7 @@ class GarminProcess {
         }
         printf( 'Done %d/%d (this run %d, previous run %d)'.PHP_EOL, $done + $already, count( $found ), $done, $already );
     }
-
     
-    /**
-     *   This function is called from the REST API 
-     *   and will trigger a back fromm process from start_year if
-     *   not already done
-     */
-    function backfill_api_entry($token_id, $start_year, $force = false){
-        $year = max(intval($start_year),2000);
-        $date = mktime(0,0,0,1,1,$year);
-        $status = $this->backfill_should_start( $token_id, $date, $force );
-        if( $status['start'] == true ){
-            // If disable don't start
-            if( !$this->backfill_disabled ){
-                // 3 days at a time, every 4 seconds
-                // should match the 90 days in 120 seconds throttle
-                $this->backfill_start_process( $token_id, $date, 3, 4 );
-            }
-        }
-        return( $status );
-    }
-
-    
-    /**
-     *    This function will check that the back fill from the start date
-     *    is necessary by checking if either no back fill were registered
-     *    or the date is earlier than the last backfill.
-     *    If a backfill is currently running it will also return false to
-     *    avoid running multiple backfill at the same time
-     */
-    function backfill_should_start( $token_id, $start_date, $force = false ){
-        $rv = array( 'start' => true, 'status' => 'New account, starting synchronisation with garmin' );
-        
-        $row = $this->sql->query_first_row( sprintf( 'SELECT UNIX_TIMESTAMP(MAX(ts)),MIN(summaryStartTimeInSeconds),MAX(summaryEndTimeInSeconds),MAX(backfillEndTime) FROM backfills WHERE token_id = %d', $token_id ) );
-
-        # something already
-        if( $row && isset( $row['UNIX_TIMESTAMP(MAX(ts))'] ) && $row['UNIX_TIMESTAMP(MAX(ts))'] ){
-            // We had one already, no need to start new one
-            $rv['start'] = false;
-            
-            $oldthreshold = time() - (15 * 60 );
-            if( $row['UNIX_TIMESTAMP(MAX(ts))'] > $oldthreshold && $row['MAX(summaryEndTimeInSeconds)'] < $row['MAX(backfillEndTime)']){
-
-                $eta = ($row['MAX(backfillEndTime)'] - $row['MAX(summaryEndTimeInSeconds)'])/(90*3600*24)*100;
-
-
-                $eta_min = intval($eta / 60 );
-                $eta_sec = $eta - ( $eta_min * 60.0 );
-                
-                $rv['status'] = sprintf( 'Synchronisation of new account with garmin still running (completed %s to %s, Estimated remaining time %d:%d)',
-                                         strftime( '%Y-%m-%d', $row['MIN(summaryStartTimeInSeconds)'] ),
-                                         strftime( '%Y-%m-%d', $row['MAX(summaryEndTimeInSeconds)'] ),
-                                         $eta_min, $eta_sec );
-            }else{
-                $rv['status'] = sprintf( 'Synchronisation from %s to %s completed on %s',
-                                         strftime( '%Y-%m-%d', $row['MIN(summaryStartTimeInSeconds)'] ),
-                                         strftime( '%Y-%m-%d', $row['MAX(summaryEndTimeInSeconds)'] ),
-                                         strftime( '%Y-%m-%d', $row['MAX(backfillEndTime)'] ) );
-            }
-            // Unless it's an incomplete one for more than 15min, then restart (it should throttle 2min max)
-            if( $row['MAX(summaryEndTimeInSeconds)'] < $row['MAX(backfillEndTime)'] && $row['UNIX_TIMESTAMP(MAX(ts))'] < $oldthreshold){
-                $rv['start'] = true;
-
-                $rv['status'] = sprintf( 'Previous Synchronisation with Garmin account seems stalled at %s (now %s)', strftime("%Y-%m-%d, %H:%M:%S", $row['UNIX_TIMESTAMP(MAX(ts))']), strftime("%Y-%m-%d, %H:%M:%S", time() ) );
-            }
-
-            // or if asked year is before current start
-            if( $row['MIN(summaryStartTimeInSeconds)'] > $start_date ){
-                $rv['start'] = true;
-                $rv['status'] = sprintf( 'Previous s did not go back far enough %s < %s',
-                                         strftime("%Y-%m-%d", $start_date ),
-                                         strftime("%Y-%m-%d", $row['MIN(summaryStartTimeInSeconds)'] ) );
-            }
-        }
-        if( $force ){
-            $rv['start'] = true;
-        }
-        return $rv;
-    }
-
-    /**
-     *   Start the backfill process by executing the first
-     *   backfill command in the background
-     */
-    function backfill_start_process( $token_id, $date, $days, $sleep ){
-        $this->ensure_schema();
-
-        $this->status->clear('backfills');
-
-        $user = $this->sql->query_first_row( "SELECT userAccessToken,userAccessTokenSecret FROM tokens WHERE token_id = $token_id" );
-
-        if( isset( $user['userAccessToken'] ) && isset( $user['userAccessTokenSecret'] ) ){
-            // start and get rid of old one if exists
-            $this->sql->execute_query( "DELETE FROM backfills WHERE token_id = $token_id" );
-            
-            $row = array( 'token_id' => $token_id,
-
-                          'summaryStartTimeInSeconds' => $date,
-                          'summaryEndTimeInSeconds' => $date,
-                          'backfillEndTime' => time()
-            );
-            $this->sql->insert_or_update( 'backfills', $row );
-            $this->exec_backfill_cmd($token_id, $days, $sleep );
-        }
-    }
-    
-    function run_backfill( $token_id, $days, $sleep ){
-        if( $this->backfill_disabled ){
-            // If disable, no more to do
-            return false;
-        }
-        
-        # Start from 2010, record request time
-        #  move 90 days forward from 2010 until reach request time
-        # return true is more to do, false if reach end
-        
-        $this->ensure_schema();
-
-        $save_to_file = false;
-        
-        $this->status->clear('backfills');
-
-        $user = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
-
-        $moreToDo = false;
-        
-        if( isset( $user['userAccessToken'] ) && isset( $user['userAccessTokenSecret'] ) ){
-            $sofar = $this->sql->query_first_row( "SELECT token_id,MIN(summaryStartTimeInSeconds),MAX(summaryEndTimeInSeconds),MAX(backfillEndTime) FROM backfills WHERE token_id = '$token_id' GROUP BY token_id" );
-        
-            if(isset($sofar['MAX(summaryEndTimeInSeconds)'] ) ){
-                $start = $sofar['MAX(summaryEndTimeInSeconds)'];
-                $backfillend = $sofar['MAX(backfillEndTime)'];
-                $backfillstart = $sofar['MIN(summaryStartTimeInSeconds)'];
-
-                $end = $start + (24*60*60*$days);
-                $moreToDo = ($end < $backfillend);
-                $next = array( 'token_id' => $token_id,
-                               'summaryStartTimeInSeconds' => $start,
-                               'summaryEndTimeInSeconds' => $end,
-                               'backfillEndTime'=>$backfillend );
-
-                $url = sprintf( $this->api_config['url_backfill_activities'], $next['summaryStartTimeInSeconds'], $next['summaryEndTimeInSeconds'] );
-                $data = $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
-                if( true || $this->status->success() ){
-                    $this->sql->insert_or_update( 'backfills', $next );
-                }
-            }
-            if( $moreToDo ){
-                if( $this->verbose ){
-                    $this->log( 'INFO', 'Requested %s days, Sleeping %s secs', $days, $sleep );
-                }
-                $this->sleep($sleep);
-                $this->exec_backfill_cmd($token_id, $days, $sleep );
-            }else{
-                $row = array( 'backfillEndTime' => $backfillend, 'backfillStartTime' => $backfillstart,'token_id' => $token_id );
-                $this->sql->insert_or_update( 'tokens', $row, array( 'token_id' ));
-                $row = array( 'backfillEndTime' => $backfillend, 'backfillStartTime' => $backfillstart, 'cs_user_id' => $user['cs_user_id'] );
-                $this->sql->insert_or_update( 'users', $row, array( 'cs_user_id' ));
-            }
-        }
-
-        return $moreToDo;
-    }
-
     function sleep( $seconds ){
         sleep( $seconds );
         // After sleep, sql connect likely to time out
@@ -2266,9 +2075,10 @@ class GarminProcess {
         if( isset( $this->api_config[$def] ) && is_writable( $this->api_config[$def] ) ){
             return $this->api_config[$def];
         }else{
-            return 'tmp';
+            return $def;
         }
     }
+
 
     function maintenance_backup_table( $table, $key ){
         // optional setting
