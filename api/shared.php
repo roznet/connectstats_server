@@ -2086,8 +2086,12 @@ class GarminProcess {
 	    $tmp_path = $this->maintenance_writable_path('tmp');
         $backup_path = $this->maintenance_writable_path('backup_path');
 
-        if( !is_writable( $tmp_path ) || ! is_writable( $backup_path ) ){
-            $this->log( 'WARNING', 'tmp or backup_path not setup and writeable, skipping backup' );
+        if( !is_writable( $tmp_path )  ){
+            $this->log( 'WARNING', 'tmp (%s)_path not setup and writeable, skipping backup', $tmp_path );
+            return;
+        }
+        if( ! is_writable( $backup_path ) ){
+            $this->log( 'WARNING', 'backup_path (%s) not setup and writeable, skipping backup', $backup_path );
             return;
         }
         
