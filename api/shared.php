@@ -2030,10 +2030,6 @@ class GarminProcess {
             file_put_contents( $defaults, sprintf( '[mysqldump]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $limit = '';
-            if( $table == 'assets' ){
-                // Special case
-                $limit = ' LIMIT 250';
-            }
 
             $mysqldump = '/usr/bin/mysqldump';
             if( ! is_executable( $mysqldump ) ){
