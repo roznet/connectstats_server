@@ -41,6 +41,11 @@ class BugReport {
 
 				$this->sql = new sql_helper( $bug_config );
 				$this->bug_data_directory = $bug_config['bug_data_directory'];
+				if( isset( $bug_config['email_bug_to'] ) ){
+						$this->email_bug_to = $bug_config['email_bug_to'];
+				}else{
+						$this->email_bug_to = NULL;
+				}
 				
 				$this->disabled = false;
 				$this->debug = false;
@@ -68,8 +73,8 @@ class BugReport {
 
 				$this->list_url = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'new.php', 'list.php', $_SERVER['REQUEST_URI'] ) );
 				$this->updated = false;
-    }
-		
+		}
+				
 		function process(){
 				if( isset( $_GET['debug'] ) ){
 						$this->build_debug_row();
@@ -217,8 +222,8 @@ class BugReport {
 								}
 								$listurl = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'bugreport/new', 'bugreport/list', $_SERVER['REQUEST_URI'] ) );
 								$msg .=sprintf('Bug report: %s',urlencode( $listurl ),PHP_EOL);
-								if(true){
-										if( ! mail( 'briceguard-roznet@yahoo.com', $subject, $msg, $headers) ){
+								if( $this->email_bug_to ){
+										if( ! mail( $this->email_bug_to, $subject, $msg, $headers) ){
 												print( '<p>Failed to email!, please go to the <a href="https://ro-z.net">web site</a> or twitter <a href="https://twitter.com/connectstats">@connectstats</a> to report</p>'.PHP_EOL );
 										}else{
 												print( '<h3>Email sent!</h3>' );
@@ -366,4 +371,4 @@ if( $bugreport->updated ){
 						<pre>
 						</pre>
 
-</body>
+		</body>
