@@ -1,6 +1,8 @@
 *_config.php
 [a-z].json
 tmp
+log
+backup_path
 debugkey.json
 
 
