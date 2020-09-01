@@ -47,8 +47,9 @@ class BugReport {
 						$this->email_bug_to = NULL;
 				}
 				
+				$this->debug = isset( $_GET['debug'] );
+				
 				$this->disabled = false;
-				$this->debug = false;
 				$this->minimum_app_version = '4.7.0';
 				$this->minimum_system_version = '10.0';
 
@@ -74,9 +75,9 @@ class BugReport {
 				$this->list_url = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'new.php', 'list.php', $_SERVER['REQUEST_URI'] ) );
 				$this->updated = false;
 		}
-				
+		
 		function process(){
-				if( isset( $_GET['debug'] ) ){
+				if( $this->debug ){
 						$this->build_debug_row();
 				}
 				
@@ -237,7 +238,7 @@ class BugReport {
 
 		function build_debug_row(){
 				if( isset( $_GET['debug'] ) ){
-						$debug = true;
+						$this->debug = true;
 						$row = array();
 						foreach( $fields as $field => $type ){
 								if( isset( $_GET[$field] ) ){
