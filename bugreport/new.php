@@ -210,15 +210,13 @@ class BugReport {
 								}
 								$subject = $this->application." BugReport";
 								$headers = 'From: ConnectStats <connectstats@ro-z.net>' . "\r\n";
-								if( $application == 'HealthStats' ){
-										$headers = 'From: HealthStats <healthstats@ro-z.net>' . "\r\n";
-								}
 								if( strpos( $row['email'], '@' ) === false ){
 										$subject = "$this->application Anonymous BugReport";
 								}else{
 										$headers .= 'Reply-To: '.$row['email'] . "\r\n";
 								}
-								$msg .=sprintf('Bug report: https://www.ro-z.net/connectstats/bugs/index.php?id=%d',$row['id'],PHP_EOL);
+								$listurl = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'bugreport/new', 'bugreport/list', $_SERVER['REQUEST_URI'] ) );
+								$msg .=sprintf('Bug report: %s',urlencode( $listurl ),PHP_EOL);
 								if(true){
 										if( ! mail( 'briceguard-roznet@yahoo.com', $subject, $msg, $headers) ){
 												print( '<p>Failed to email!, please go to the <a href="https://ro-z.net">web site</a> or twitter <a href="https://twitter.com/connectstats">@connectstats</a> to report</p>'.PHP_EOL );
@@ -352,6 +350,7 @@ if( $bugreport->updated ){
         print "<p>You don't appear to have included an email so I won't be able to get back to you, even if I am able to to help you.</p>";
     };
     output_bug_description($bugreport);
+		$bugreport->send_email_if_necesssary();
 }else{
     if( $bugreport->is_outdated_version() ){
         output_outdated_version($bugreport);
