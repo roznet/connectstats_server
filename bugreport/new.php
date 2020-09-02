@@ -74,6 +74,7 @@ class BugReport {
 
                 if (!$this->sql->table_exists('gc_bugreports')) {
                     $this->sql->create_or_alter('gc_bugreports', $this->fields, true);
+                    $this->sql->ensure_field( 'gc_bugreports', 'replied', 'DATETIME' );
                 }
 				$this->list_url = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'new.php', 'list.php', $_SERVER['REQUEST_URI'] ) );
 				$this->updated = false;
