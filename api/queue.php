@@ -78,8 +78,22 @@ class Queue {
         if( $input ){
             $api_config = $input;
         }else{
-            include( 'config.php' );
+            $configs = [  __DIR__.'/config.php', is_readable( dirname( __DIR__ ).'/config.php' ) ];
+            $found = NULL;
+            foreach( $configs as $config ){
+                if( is_readable( $config ) ){
+                    $found = $config;
+                    break;
+                }
+            }
+            if( $found ){
+                include( $found );
+            }else{
+                die( sprintf( 'Failed to open config file from %s'.PHP_EOL, __DIR__ ) );
+            }
         }
+
+        $this->api_config = $api_config;
 
         $this->sql = new queue_sql( $api_config );
         $this->queue_count = 5;
@@ -187,11 +201,37 @@ class Queue {
         }
     }
 
+    function task_log_dir( $task_cwd, $add_date = true){
+        if( isset( $this->api_config['log'] ) ){
+            $log_base = $this->api_config['log'];
+        }else{
+            $log_base = 'log';
+        }
+        $this->log( 'INFO', 'using log_base %s', $log_base );
+        if( substr( $log_base, 0, 1 ) != '/' ){
+            // if relative path, make it off the task cwd
+            $log_base = sprintf( '%s/%s', $task_cwd, $log_base );
+        }
+        $this->log( 'INFO', 'final log_base %s', $log_base );
+        if( $add_date ){
+            $log_dir = sprintf( '%s/%s', $log_base, date( 'Ymd' ) );
+        }else{
+            $log_dir = $log_base;
+        }
+        
+        $this->log( 'INFO', 'final log_dir %s', $log_dir );
+        if( ! is_dir( $log_dir ) ){
+            // if not exist try to create with group write permission
+            $this->log( 'INFO', 'creating log_dir %s', $log_dir );
+            mkdir( $log_dir, 0775, true );
+        }
+        return $log_dir;
+    }
+    
     /* **********
      * Run Task functionality
      *
      */
-
     function run_one_task( $queue_index ){
         $done = false;
         $query = sprintf( 'SELECT * FROM tasks WHERE MOD(task_id,%d) = %d AND (finished_ts IS NULL ) AND ( not_before_ts IS NULL || CURRENT_TIMESTAMP() > not_before_ts ) ORDER BY ts LIMIT 1', $this->queue_count, $queue_index );
@@ -202,7 +242,7 @@ class Queue {
             $query = sprintf( 'UPDATE tasks SET started_ts = FROM_UNIXTIME(%d), queue_id = %d WHERE task_id = %d', time(), $this->queue_id, $task_id);
             $this->sql->execute_query( $query );
 
-            $log_dir = sprintf( '%s/log', $row['task_cwd' ] );
+            $log_dir = $this->task_log_dir( $row['task_cwd' ] );
             if( is_dir( $log_dir ) ){
                 $log = sprintf( '%s/task_%d.log', $log_dir, $task_id );
                 $command = sprintf( '%s > %s 2>&1', $row['task_command'], $log );
@@ -571,10 +611,18 @@ class Queue {
     }
 
     function exec_queue( $queue_index, $queue_id ){
-        if( is_writable( 'log' ) ){
-            $log = sprintf( 'log/queue_%d_for_%d', $queue_id, $queue_index );
-            $command = sprintf( 'nohup php runqueue.php %d  > %s.log 2>&1 &', $queue_id, $log );
+        if( isset( $this->api_config['log'] ) ){
+            $log_dir = $this->api_config['log'];
         }else{
+            $log_dir = 'log';
+        }
+        if( is_writable( $log_dir ) ){
+            $log = sprintf( '%s/queue_%d_for_%d.log', $log_dir, $queue_id, $queue_index );
+            $command = sprintf( 'nohup php runqueue.php %d  > %s 2>&1 &', $queue_id, $log );
+        }else{
+            if( $this->verbose ){
+                $this->log( 'WARNING', 'log dir %s is not writable, sending to /dev/null', $log_dir );
+            }
             $command = sprintf( 'php runqueue.php %d  > /dev/null 2> /dev/null &', $queue_id );
         }
         if( $this->verbose ){

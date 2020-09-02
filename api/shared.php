@@ -39,9 +39,6 @@ error_reporting(E_ALL);
  *                        uri: api/connectstats/validateuser
  *                        php: validate_user()
  *
- *  5. Garmin API:        call garmin api to trigger backfill if necessary. Will trigger call back to `activities` and `file` steps.
- *                        uri: config['url_backfill_activities']
- *                        php: backfill_start_process() calls: run_backfill() in queue/background
  *  6. Garmin API:        Callback from garmin with new activities
  *                        uri: api/garmin/activities
  *                        php: save_to_cache('activities')
@@ -1899,14 +1896,6 @@ class GarminProcess {
                     $maxtime = $startTime;
                 }
             }
-        }
-
-        if( count( $res ) > 0){
-            $this->log( 'INFO' , 'Missing %d activities between %s and %s', count( $res ), strftime("%Y-%m-%d", $mintime ), strftime("%Y-%m-%d", $maxtime ) );
-            $endtime = $mintime + (24*60*60*90); // 90 is per max throttle from garmin
-            $url = sprintf( $this->api_config['url_backfill_activities'], $mintime, $endtime );
-            $user = $this->user_info_for_token_id( 1 );
-            $data = $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
         }
     }
 
