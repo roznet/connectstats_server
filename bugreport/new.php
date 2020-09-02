@@ -72,6 +72,10 @@ class BugReport {
 															'filesize' => 'INT',
 															'updatetime'=>'DATETIME');
 
+                if (!$this->sql->table_exists('gc_bugreports')) {
+                    $this->sql->create_or_alter('gc_bugreports', $this->fields, true);
+                    $this->sql->ensure_field( 'gc_bugreports', 'replied', 'DATETIME' );
+                }
 				$this->list_url = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'new.php', 'list.php', $_SERVER['REQUEST_URI'] ) );
 				$this->updated = false;
 		}
@@ -123,9 +127,6 @@ class BugReport {
 		
 		function save_bugreport(){
 				if( is_dir( $this->bug_data_directory ) && isset($_FILES['file']) ){
-						if(!$this->sql->table_exists('gc_bugreports')){
-								$this->sql->create_or_alter('gc_bugreports',$fields,true);
-						}
 						$this->sql->ensure_field('gc_bugreports','version','VARCHAR(256)');
 						$this->sql->ensure_field('gc_bugreports','commonid','VARCHAR(256)');
 						$this->sql->ensure_field('gc_bugreports','applicationName','VARCHAR(256)');
@@ -222,7 +223,7 @@ class BugReport {
 										$headers .= 'Reply-To: '.$row['email'] . "\r\n";
 								}
 								$listurl = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'bugreport/new', 'bugreport/list', $_SERVER['REQUEST_URI'] ) );
-								$msg .=sprintf('Bug report: %s',urlencode( $listurl ),PHP_EOL);
+								$msg .=sprintf('Bug report: %s', $listurl,PHP_EOL);
 								if( $this->email_bug_to ){
 										if( ! mail( $this->email_bug_to, $subject, $msg, $headers) ){
 												print( '<p>Failed to email!, please go to the <a href="https://ro-z.net">web site</a> or twitter <a href="https://twitter.com/connectstats">@connectstats</a> to report</p>'.PHP_EOL );
@@ -240,7 +241,7 @@ class BugReport {
 				if( isset( $_GET['debug'] ) ){
 						$this->debug = true;
 						$row = array();
-						foreach( $fields as $field => $type ){
+						foreach( $this->fields as $field => $type ){
 								if( isset( $_GET[$field] ) ){
 										$row[$field] = $_GET[$field];
 								}
