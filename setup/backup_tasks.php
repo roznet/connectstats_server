@@ -142,7 +142,7 @@ if( isset( $remain[0] ) ){
     }
     $process->sql->insert_or_update( 'backup_status_users', $latest, array( 'userId' ) );
     if( $execute ){
-        $queue->start_queues();
+        exec( '(cd ../api/queue;php queuectl.php start)');
     }
 }
 ?>

@@ -1,4 +1,6 @@
 logs
+log
+tmp
 .DS_Store
 error_log
 *~

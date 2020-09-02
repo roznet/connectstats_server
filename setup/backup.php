@@ -68,7 +68,7 @@ $process->ensure_schema();
 
 /*
  * To create the database backup_info
- *   CREATE TABLE backup_info (backup_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, activities_cache_id BIGINT(20) UNSIGNED, fitfiles_cache_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
+ *   CREATE TABLE backup_info (backup_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, activities_cache_id BIGINT(20) UNSIGNED, fitfiles_cache_id BIGINT(20) UNSIGNED, fitfiles_url_fixed_cache_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)
  */
 if( ! $process->sql->table_exists( 'backup_info' ) ){
     printf( 'ERROR: needs to run against a database setup for backup'.PHP_EOL );
