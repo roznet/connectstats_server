@@ -222,7 +222,7 @@ class BugReport {
 										$headers .= 'Reply-To: '.$row['email'] . "\r\n";
 								}
 								$listurl = sprintf( 'https://%s/%s', $_SERVER['HTTP_HOST'], str_replace( 'bugreport/new', 'bugreport/list', $_SERVER['REQUEST_URI'] ) );
-								$msg .=sprintf('Bug report: %s',urlencode( $listurl ),PHP_EOL);
+								$msg .=sprintf('Bug report: %s', $listurl,PHP_EOL);
 								if( $this->email_bug_to ){
 										if( ! mail( $this->email_bug_to, $subject, $msg, $headers) ){
 												print( '<p>Failed to email!, please go to the <a href="https://ro-z.net">web site</a> or twitter <a href="https://twitter.com/connectstats">@connectstats</a> to report</p>'.PHP_EOL );
