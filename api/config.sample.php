@@ -50,20 +50,43 @@ $api_config = array(
     // The url to use for call back to the Garmin Health API
     // These are parameter to a test server can use alternative url
 	'url_user_id' => 'https://healthapi.garmin.com/wellness-api/rest/user/id',
-	'url_backfill_activities' => 'https://healthapi.garmin.com/wellness-api/rest/backfill/activities?summaryStartTimeInSeconds=%s&summaryEndTimeInSeconds=%s'
 
     // OPTIONAL Config
     // A path to a tmp directory to use, in case the default directory can't be used
-    // For permissions issues
-    //'tmp' => '',
+    // For permissions issues. by default save in 'tmp'  in current dir
+    'tmp' => 'tmp',
+    // OPTIONAL Config for keeping log files
+    'log' => 'log',
 
-    // OPTIONAL Key to the dark Sky Net API, so weather can be downloaded for
+    // OPTIONAL Key to the dark Sky Net API or other weather provider, so weather can be downloaded for
     // activities
     //'darkSkyKey' => '',
+    //'visualCrossingKey' => '',
+    //'openWeatherMapKey' => '',
+
 
     // OPTIONAL Url to the server to do an incremental backup of
     //'url_backup_source' => '',
 		
+    // OPTIONAL name of the s3 bucket to save data into
+    //          if of the form 'localhost:/path/to/dir', the data will be saved on a local disk
+    //          if not provided the data will be saved in the mysql db (not recommended)
+    'save_to_s3_bucket' => '',
 
+    // OPTIONAL name of an s3 bucket to backup data from. This is used by backup script in setup
+    //'backup_from_s3_bucket' => '',
+
+    // Keys for S3 acccess
+    's3_access_key' => '',
+    's3_secret_key'=> '',
+    's3_region'=>'',
+
+    // Threshold to ignore activities when getting data from server
+    'ignore_activities_months_threshold' => 12,
+    // Threshold to ignore fit extraction, weather queries
+    'ignore_fitextract_hours_threshold' => 24*5,
+    // OPTIONAL a date to ignore any activities before that date in any processing
+    //'ignore_activities_date_threshold' => 1575158293,
+    
 );
 ?>
