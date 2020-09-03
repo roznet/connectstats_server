@@ -867,7 +867,7 @@ class GarminProcess {
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
                     $start_check_log = sprintf( '%s/start_check_queue.log', $this->maintenance_writable_path('log') );
                     if( $this->verbose ){
-                        $this->log( 'QUEUE',  'Checking queue is started, last check %d secs ago. Log in %s', abs( time() - filemtime( $file_lock ), $start_check_log ));
+                        $this->log( 'QUEUE',  'Checking queue is started, last check %d secs ago. Log in %s', abs( time() - filemtime( $file_lock ) ), $start_check_log );
                     }
                     touch( $file_lock );
                     chmod( $file_lock, 0775 );
