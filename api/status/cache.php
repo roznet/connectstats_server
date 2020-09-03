@@ -24,14 +24,8 @@
  *  
  * -----------
  *
- * This entry point should be called only for maintenance and backup
- * It will need to be authenticated by the system token
+ * This entry point should be called to get a status of the cache processing
  *
- * GET Parameters:
- * REQUIRED:
- * One of:
- *   summary_id: the summary id for the item to be retrieved
- *   table: the table to retrieve
  */
 
 include_once('../shared.php' );
