@@ -863,13 +863,17 @@ class GarminProcess {
                 $this->log( 'QUEUE',  'Add task `%s`'.PHP_EOL, $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
-                $file_lock = sprintf( '%s/start_lock', $this->maintenance_writable_path('log') );
+                $file_lock = sprintf( '%s/start_check_lock', $this->maintenance_writable_path('log') );
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
+                    $start_check_log = sprintf( '%s/start_check_queue.log', $this->maintenance_writable_path('log') );
                     if( $this->verbose ){
-                        $this->log( 'QUEUE',  'Starting Queue, last start %d secs ago', abs( time() - filemtime( $file_lock ) ));
+                        $this->log( 'QUEUE',  'Checking queue is started, last check %d secs ago. Log in %s', abs( time() - filemtime( $file_lock ), $start_check_log ));
                     }
                     touch( $file_lock );
-                    exec( sprintf( '(cd ../queue;php queuectl.php start) > %s/start_queue.log &', $this->maintenance_writable_path('log') ) );
+                    chmod( $file_lock, 0775 );
+                    touch( $start_check_log );
+                    chmod( $start_check_log, 0775 );
+                    exec( sprintf( '(cd ../queue;php queuectl.php start) > %s &', $start_check_log ) );
                 }else{
                     if( $this->verbose ){
                         $this->log( 'QUEUE',  'Start Skip: last start %d secs ago', abs( time() - filemtime( $file_lock ) ) );
@@ -2105,7 +2109,7 @@ class GarminProcess {
                 $this->log( 'OUT','Got new data for %s (%d bytes)', $table, $outsize );
                 $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
                 file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
-                chmod( $defaults, 0600 );
+                chmod( $defaults, 0660 );
                 $command = sprintf( 'mysql --defaults-file=%s -u %s -h %s %s < %s', $defaults, $this->api_config['db_username'], $this->api_config['db_host'], $database, $sql_out );
                 $this->log( 'EXEC',  $command );
                 system(  $command );
