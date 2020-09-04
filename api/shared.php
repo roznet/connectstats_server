@@ -1255,9 +1255,8 @@ class GarminProcess {
     }
     function weather_query_visualCrossing( $key, $lat, $lon, $st, $ts )
     {
-        // https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/history?aggregateHours=1&combinationMethod=aggregate&collectStationContributions=false&maxStations=-1&maxDistance=-1&includeNormals=false&contentType=json&unitGroup=metric&locationMode=single&locations=51.4716,-0.1957&startDateTime=2020-08-27T00%3A00%3A00&endDateTime=2020-08-27T00%3A00%3A00&key={KEY}
         $datefmt = '%Y-%m-%dT%H:%M:%S';
-        $url = sprintf('https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/history?aggregateHours=1&combinationMethod=aggregate&collectStationContributions=false&maxStations=-1&maxDistance=-1&includeNormals=false&contentType=json&unitGroup=metric&locationMode=single&locations=%f,%f&startDateTime=%s&endDateTime=%s&key=%s',
+        $url = sprintf('https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/weatherdata/history?aggregateHours=1&combinationMethod=aggregate&collectStationContributions=false&maxStations=-1&maxDistance=-1&includeNormals=false&contentType=json&unitGroup=metric&locationMode=single&locations=%f,%f&startDateTime=%s&endDateTime=%s&key=%s&iconSet=icons1',
                        $lat, $lon, $st,  $ts, $key);
         $weather = array();
 
