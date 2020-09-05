@@ -175,35 +175,44 @@ class BugReport
         return (isset($this->row['version']) && version_compare($this->row['version'], $this->minimum_app_version) == -1);
     }
 
+
+    function saved_file_name( $name ){
+       $file_dir = strftime("%Y/%m", $this->update_time);
+       return sprintf( '%s/%s', $file_dir, $name );
+    }
+
+    function saved_file_full_path( $name ){
+        $full_file_path = sprintf('%s/%s', $this->bug_data_directory, $name);
+        $upload_dir = dirname( $full_file_path );
+        if (!is_dir($upload_dir)) {
+            if (!mkdir($upload_dir, 0777, true)) {
+                die( 'Internal misconfiguration, cannot save file' );
+            }
+        }
+        return $full_file_path;
+    }
+    
     function save_bugreport()
     {
         if (is_dir($this->bug_data_directory) && isset($_FILES['file'])) {
+            
             $this->sql->ensure_field('gc_bugreports', 'version', 'VARCHAR(256)');
             $this->sql->ensure_field('gc_bugreports', 'commonid', 'VARCHAR(256)');
             $this->sql->ensure_field('gc_bugreports', 'applicationName', 'VARCHAR(256)');
             $this->sql->ensure_field('gc_bugreports', 'filesize', 'INT');
 
-            $file_dir = strftime("%Y/%m", time());
-            $uploads_dir = sprintf('%s/%s', $this->bug_data_directory, $file_dir);
-            if (!is_dir($uploads_dir)) {
-                if (!mkdir($uploads_dir, 0777, true)) {
-                    $upload_dir = $this->bug_data_directory;
-                }
-            }
+            $this->update_time = time();
+            
             $file = $_FILES['file'];
             $error = $file['error'];
             $this->new_id = $this->sql->max_value('gc_bugreports', 'id') + 1;
 
-            $saved_file_name = NULL;
             if ($error == UPLOAD_ERR_OK) {
                 $tmp_name = $file["tmp_name"];
-                $name = $file["name"];
-                $name = sprintf("bugreport_%s_%d.zip", strftime("%Y%m%d", time()), $this->new_id);
-                $v = move_uploaded_file($tmp_name, "$uploads_dir/$name");
-                if ($v) {
-                    $saved_file_name = "$file_dir/$name";
-                } else {
-                    $saved_file_name = sprintf('ERROR: Failed to save %s', $tmp_name);
+                $saved_file_name = $this->saved_file_name( sprintf("bugreport_%s_%d.zip", strftime("%Y%m%d", $this->update_time), $this->new_id) );
+                $v = move_uploaded_file($tmp_name, $this->saved_file_full_path( $saved_file_name ));
+                if (!$v) {
+                    $saved_file_name = sprintf('ERROR: Failed to save %s to %s', $tmp_name, $saved_file_name);
                 }
             } else {
                 $saved_file_name = sprintf('ERROR: Failed to upload (error=%s)', $error);
@@ -223,7 +232,7 @@ class BugReport
                     }
                 }
             }
-            $row['updatetime'] = $this->sql->value_to_sqldatetime(time());
+            $row['updatetime'] = $this->sql->value_to_sqldatetime($this->update_time);
             if (!isset($row['commonid']) || $row['commonid'] == -1) {
                 $this->common_id = $this->new_id;
                 $row['commonid'] = $this->common_id;
@@ -246,7 +255,7 @@ class BugReport
         if ($this->updated) {
             try {
                 $row = $this->sql->query_first_row(sprintf("SELECT * FROM gc_bugreports WHERE id = %d", intval($this->new_id)));
-
+                $this->update_time =  strtotime( $row['updatetime'] );
                 $msg = sprintf(
                     "Description: %s\nEmail: %s\nVersion: %s\nPlatform: %s\n",
                     $row['description'],
@@ -255,15 +264,24 @@ class BugReport
                     implode(' ', array($row['systemName'], $row['systemVersion'], $row['platformString']))
                 );
 
-                if (isset($row['filename']) && file_exists($row['filename'])) {
-                    $z = new ZipArchive();
+                if (isset($row['filename'])) {
+                    $saved_file_path = $this->saved_file_full_path( $row['filename'] );
+                    if( is_readable( $saved_file_path ) ){
+                        $z = new ZipArchive();
 
-                    if ($z->open($row['filename'])) {
-                        if ($z->numFiles > 1) {
-                            for ($i = 0; $i < $z->numFiles; $i++) {
-                                $info = $z->statIndex($i);
-                                $fn = $info['name'];
-                                $msg .= sprintf("File: %s" . PHP_EOL, $fn);
+                        if ($z->open($saved_file_path)) {
+                            if ($z->numFiles > 1) {
+                                for ($i = 0; $i < $z->numFiles; $i++) {
+                                    $info = $z->statIndex($i);
+                                    $fn = $info['name'];
+                                    $sz = $info['size'];
+                                    if( $sz > 1048576 ){
+                                        $sz = number_format( $sz/1048576,2). ' MB';
+                                    }else{
+                                        $sz = number_format( $sz/1024, 2 ). ' KB';
+                                    }
+                                    $msg .= sprintf("File: %s ($sz)" . PHP_EOL, $fn, $sz);
+                                }
                             }
                         }
                     }

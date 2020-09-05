@@ -226,7 +226,12 @@ class BugReport {
                     $extract_url = sprintf( '?id=%d&file=%s&force_extract=1', $id, $file );
                     print( '<pre>' );
 										$backurl =  $_SERVER['REQUEST_URI'];
-										$phpliteurl = sprintf( '../%s/sqlite/%d_%s', $this->bug_data_directory, $id, $file, $file );
+                                        if( substr( $this->bug_data_directory, 0, 1 ) == '/' ){
+                                            $phpliteurl = sprintf( '%s/sqlite/%d_%s', $this->bug_data_directory, $id, $file, $file );
+                                        }else{
+                                            $phpliteurl = sprintf( '../%s/sqlite/%d_%s', $this->bug_data_directory, $id, $file, $file );
+                                        }
+                                        printf( $phpliteurl.PHP_EOL );
                     printf( '<a href="phpliteadmin/?switchdb=%s&backurl=%s">Open %s</a> [<a href="%s">re-extract</a> %s]'.PHP_EOL, urlencode($phpliteurl),urlencode( $backurl ), $file, $extract_url, $outname );
                     print( '</pre>' );
                 }else if( $is_bugreport ){

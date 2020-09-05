@@ -1,6 +1,6 @@
 <?php   
 
-$api_config = array(
+$bug_config = array(
     'database' => '***',
     'db_host' => '***',
 
