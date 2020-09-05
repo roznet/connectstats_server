@@ -111,6 +111,13 @@ class sql_helper {
 		};
 		return( $value );
 	}
+    function time_from_sqldatetime( $sqldatetime ){
+        if( gettype( $value ) == 'string' ){
+            return strtotime( $value );
+        }
+        return $sqldatetime;
+    }
+    
 	function value_to_sqldatetime( $value ){
 		$timestamp = $value;
 		if( gettype( $value ) == "string" ){
