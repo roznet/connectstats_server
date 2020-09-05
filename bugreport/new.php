@@ -33,8 +33,6 @@
 include_once( dirname( __DIR__, 1 ) ) . '/api/sql_helper.php';
 include( 'config_bugreport.php' );
 
-include_once( dirname( __DIR__, 1 ) ) . '/api/sql_helper.php';
-
 class BugReport
 {
 

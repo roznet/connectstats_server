@@ -12,7 +12,7 @@ class BugReport {
     }
     
     function links(){
-        print '<table class="linktable"><tr><td><a href="list">nonblank</a></td><td><a href="list?needreply=1">need reply</a></td><td><a href="list?all=1">all</a></td><td><a href="list?errors=1">errors</a></td></tr></table>';
+        print '<table class="linktable"><tr><td><a href="list?nonblank=1">nonblank</a></td><td><a href="list?needreply=1">need reply</a></td><td><a href="list?all=1">all</a></td><td><a href="list?errors=1">errors</a></td></tr></table>';
     }
 
 
@@ -75,7 +75,8 @@ class BugReport {
         return 'bugreport_info';
     }
 
-    function bugreport_line_parse( $txt, $is_compact ){
+    function bugreport_line_parse( $txt ){
+        $line = NULL;
         if( preg_match( '/([0-9]+-[0-9]+-[0-9]+ [:.0-9]+) ([:0-9a-f]+) [-EW] (INFO|ERR |WARN):([A-Za-z0-9.+]+):([0-9]+):([-+]\[[^\]]+\])(.*)/', $txt, $matches ) ){
             $line = array(
                 'time' => $matches[1],
@@ -84,26 +85,41 @@ class BugReport {
                 'filename' => $matches[4],
                 'line' => $matches[5],
                 'method' => $matches[6],
-                'message' => $matches[7]
+                'message' => $matches[7],
+                'raw' => $txt
             );
+        };
+        return $line;
+    }
+    
+    function bugreport_line_are_duplicates( $line, $prev_line ){
+        if( $line == NULL || $prev_line == NULL ){
+            return false;
+        }
+
+        return( $line['level'] == $prev_line['level'] && $line['method'] == $prev_line['method'] && $line['message'] == $prev_line['message'] );
+    }
+    
+    function bugreport_line_format( $line, $is_compact ){
+        if( $line ){
             if( $is_compact ){
                 $prefix = sprintf( '%s', $line['time'] );
                 $type   = $line['level'];
                 $url = sprintf( 'https://github.com/roznet/connectstats/blob/master/ConnectStats/src/%s#L%s', $line['filename'], $line['line'] );
                 $source = sprintf( '<a href="%s" class="method">%s</a>', $url, $line['method'] );
-                $class = $this->class_bugreport( $txt );
+                $class = $this->class_bugreport( $line['raw'] );
                 return sprintf( '<td class="line_prefix">%s</td><td class="%s">%s</td><td class="line_source">%s</td><td class="%s">%s</td>', $prefix, $class, $type, $source, $class, $line['message'] );
             }else{
                 $prefix = sprintf( '%s %s', $line['time'], $line['pid'] );
                 $type   = $line['level'];
                 $url = sprintf( 'https://github.com/roznet/connectstats/blob/master/ConnectStats/src/%s#L%s', $line['filename'], $line['line'] );
                 $source = sprintf( '<a href="%s" class="method">%s:%s</a>', $url, $line['filename'], $line['line'] );
-                $class = $this->class_bugreport( $txt );
+                $class = $this->class_bugreport( $line['raw'] );
                 return sprintf( '<td class="line_prefix">%s</td> <td class="%s">%s</td> <td class="line_source">%s</td><td class="%s"><div class="method">%s</div> %s</td>', $prefix, $class, $type, $source, $class, $line['method'], $line['message'] );
             }
-        };
-        return $txt;
+        }
     }
+    
     function url_github_code( $txt ){
         if( preg_match( '/(- INFO|E ERR |W WARN):([A-Za-z0-9.+]+):([0-9]+):/', $txt, $matches ) ){
             $filename = $matches[2];
@@ -220,13 +236,29 @@ class BugReport {
                     }else{
                         print( '<table class="bugreport_line">'.PHP_EOL );
                     }
+                    $prev_line = NULL;
+                    $prev_line_count = 0;
                     foreach( $lines as $line ){
                         $raw = htmlspecialchars($line);
                         if( $is_raw ){
                             printf( '<li>%s</li>'. PHP_EOL,  $raw );
                         }else{
-                            $raw =  $this->bugreport_line_parse( $raw, $is_compact );
-                            printf( '<tr class="bugreport_line">%s</tr>'. PHP_EOL,  $raw );
+                            $line =  $this->bugreport_line_parse( $raw );
+                            if( $this->bugreport_line_are_duplicates( $line, $prev_line ) ){
+                                $prev_line_count += 1;
+                            }else{
+                                if( $prev_line_count > 1 && $prev_line){
+                                    $prev_line['method'] .= sprintf( ' <b>[REPEATED %d]</b>', $prev_line_count );
+                                    $raw = $this->bugreport_line_format($prev_line, $is_compact);
+                                    printf('<tr class="bugreport_line">%s</tr>' . PHP_EOL,  $raw);
+                                }
+                                if ($line) {
+                                    $raw = $this->bugreport_line_format($line, $is_compact);
+                                    printf('<tr class="bugreport_line">%s</tr>' . PHP_EOL,  $raw);
+                                }
+                                $prev_line_count = 0;
+                            }
+                            $prev_line = $line;
                         }
                     }
                 }else{
@@ -243,7 +275,7 @@ class BugReport {
     }
 
     function summary_with_errors(){
-        $query = sprintf( "SELECT * FROM gc_bugreports WHERE description != '' OR email != '' ORDER BY updatetime DESC LIMIT %d", $this->limit );
+        $query = $this->summary_query();
         $all = $this->sql->query_as_array($query);
         $i=0;
 				
@@ -269,9 +301,25 @@ class BugReport {
 										
                     fclose($fp);
                     $lines = explode( "\n", $content);
+                    $last_line = NULL;
+                    $last_line_message = NULL;
+                    $last_line_repeat_count = 0;
                     foreach( $lines as $line ){
-                        if( strpos( $line, 'X EXCP') !==FALSE || strpos( $line, 'E ERR')!==FALSE){
-                            $errors .= $line.PHP_EOL;
+                        if( strpos( $line, 'E ERR')!==FALSE) {
+                            $line_message = substr( $line, strpos( $line, 'E ERR' ) );
+                            if( $last_line_message == $line_message ){
+                                $last_line_repeat_count += 1;
+                                $last_line = $line; // keep the time stamp going
+                            }else{
+                                if( $last_line_repeat_count > 1 ){
+                                    $errors .= sprintf( '%s [REPEATED %d]'.PHP_EOL, htmlspecialchars($last_line), $last_line_repeat_count );
+                                }
+                                $errors .= htmlspecialchars( $line ).PHP_EOL;
+
+                                $last_line = $line;
+                                $last_line_message = $line_message;
+                                $last_line_repeat_count = 0;
+                            }
                         }
                     }
                 }
@@ -282,25 +330,30 @@ class BugReport {
                     $class="class=odd";
                 }
                 $i++;
+                $fn = $this->file_path_for_row($row);
+                
                 printf( '<table class=sqltable width="90%%"><tr %s><td width="3%%">', $class);
                 printf( '<a href="list?id=%d">%d</a>', $one['id'], $one['id']);
-                print '</td><td width="20%">';
-                print implode( ' ', array( $row['systemName'], $row['systemVersion'], $row['platformString'], $row['version'] ) );
-                print '</td><td width="20%">';
-                $fn = $this->file_path_for_row($row);
-                printf( '<a href="%s">%s</a>%s', $fn,$fn, PHP_EOL);
-                print '</td><td width="20%">';
-                print htmlspecialchars($row['email']);
-                print '</td><td>';
-                print htmlspecialchars($row['description']);
-                print '</td></tr></table>'.PHP_EOL;
-                print '<pre>'.$errors.'</pre>';
+                print(  '</td><td>' );
+                printf( '<a href="list?commonid=%d&errors=1">%d</a>',  $one['commonid'], $one['commonid']);
+                print(  '</td><td>');
+                print(  implode( ' ', array( $row['systemName'], $row['systemVersion'], $row['platformString'], $row['version'] ) ) );
+                print(  '</td><td>' );
+                printf( '%s', $row['updatetime']);
+                print(  '</td><td>');
+                print(  htmlspecialchars($row['email']));
+                if( $row['replied'] ){
+                    printf( ' [Replied %s]', $row['replied'] );
+                }
+                print(  '</td><td>');
+                print(  htmlspecialchars($row['description']));
+                print(  '</td></tr></table>'.PHP_EOL);
+                print(  '<pre>'.$errors.'</pre>');
             }
         }
-
     }
 
-    function summary_table(){
+    function summary_query(){
         if( isset( $this->args['commonid'] ) ){
             $query = sprintf('SELECT * FROM gc_bugreports WHERE commonid=%d ORDER BY updatetime DESC', $this->args['commonid'] );
         }else if(isset($this->args['all'])){
@@ -310,6 +363,12 @@ class BugReport {
         }else{
             $query = sprintf( "SELECT * FROM gc_bugreports WHERE description != '' OR email != '' ORDER BY updatetime DESC LIMIT %d", $this->limit );
         }
+        return $query;
+    }
+    
+    function summary_table(){
+        $query = $this->summary_query();
+        
         $order = array( 'id', 'commonid', 'updatetime', 'replied', 'version', 'email', 'description', 'systemVersion', 'platformString' );
         $email_fn = function($row){
             return $this->email_link( $row );
