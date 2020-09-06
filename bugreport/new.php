@@ -289,7 +289,7 @@ class BugReport
                     $msg .= sprintf("File Failed to save %s" . PHP_EOL, $row['filename']);
                 }
                 $subject = $this->application . " BugReport";
-                $headers = 'From: ConnectStats <connectstats@ro-z.net>' . "\r\n";
+                $headers = 'From: ConnectStats <bugreport@connectstats.app>' . "\r\n";
                 if (strpos($row['email'], '@') === false) {
                     $subject = "$this->application Anonymous BugReport";
                 } else {
