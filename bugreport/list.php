@@ -146,7 +146,6 @@ class BugReport {
             printf( ' replied %s', $row['replied'] );
         }
         $fn = $this->file_path_for_row( $row );
-				print( $fn );
         print '</td></tr><tr><td><h4>System</h4></td><td>';
         print implode( ' ', array( $row['systemName'], $row['systemVersion'], $row['platformString'] ) );
         print '</td></tr><tr><td><h4>linked errors</h4></td><td>';
