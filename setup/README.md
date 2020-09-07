@@ -69,6 +69,16 @@ SELECT task_id, queue_id, started_ts, finished_ts, timediff(finished_ts,started_
 SELECT cs_user_id, MAX(ts) AS `last`, MIN(ts) AS `first`, TIMEDIFF(MAX(ts),MIN(ts)) AS `days`, COUNT(*) AS total FROM `usage` GROUP BY cs_user_id ORDER BY last DESC;
 ```
 
+# Usage Summary
+
+```
+CREATE TABLE usage_summary (usage_summary_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, `day` DATE, `count` BIGINT(20) UNSIGNED, max_ts TIMESTAMP, min_ts TIMESTAMP);
+CREATE INDEX usage_summary_day ON usage_summary (`day`);
+CREATE INDEX usage_summary_cs_user_id ON usage_summary (`cs_user_id`);
+INSERT INTO usage_summary (`day`,cs_user_id,`count`,`max_ts`,`min_ts`) SELECT date(ts) AS `day`,cs_user_id,COUNT(*) AS `count`,MAX(ts) AS `max_ts`,MIN(ts) AS `min_ts` FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),3) GROUP BY date(ts),cs_user_id ORDER BY `day`,cs_user_id;
+
+```
+
 
 # Indexes and queries use beside primary index
 
