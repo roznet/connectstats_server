@@ -2051,6 +2051,12 @@ class GarminProcess {
                 $done = true;
                 unlink( $outfile );
             }
+
+            # don't leave 0 size log files around
+            if( is_readable( $logfile ) && filesize( $logfile ) == 0 ){
+                unlink( $logfile );
+            }
+
         }else{
             if( $this->verbose ){
                 $this->log( 'ERROR', 'Cannot write to tmp path %s from %s', $tmp_path, getcwd() );
