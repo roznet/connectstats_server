@@ -207,19 +207,16 @@ class Queue {
         }else{
             $log_base = 'log';
         }
-        $this->log( 'INFO', 'using log_base %s', $log_base );
         if( substr( $log_base, 0, 1 ) != '/' ){
             // if relative path, make it off the task cwd
             $log_base = sprintf( '%s/%s', $task_cwd, $log_base );
         }
-        $this->log( 'INFO', 'final log_base %s', $log_base );
         if( $add_date ){
             $log_dir = sprintf( '%s/%s', $log_base, date( 'Ymd' ) );
         }else{
             $log_dir = $log_base;
         }
         
-        $this->log( 'INFO', 'final log_dir %s', $log_dir );
         if( ! is_dir( $log_dir ) ){
             // if not exist try to create with group write permission
             $this->log( 'INFO', 'creating log_dir %s', $log_dir );
@@ -262,7 +259,7 @@ class Queue {
             exec( $command, $output, $status );
             $elapsed = time() - $time;
             if( $this->verbose ){
-                $this->log( 'DONE','(%d secs) %s', $elapsed, $command );
+                $this->log( 'DONE','%s (%d secs) ', $command, $elapsed );
             }
             if( $elapsed > 30 ){
                 $this->log( 'TIME', 'reconnecting mysql' );
