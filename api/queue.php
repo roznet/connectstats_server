@@ -305,6 +305,19 @@ class Queue {
         return( $rv );
     }
 
+        /**
+     *    Return information about the queue that had the most recent heartbeat for queue_index
+     */
+    function heartbeat_for_queue_id( int $queue_id ){
+        $rv = $this->sql->query_first_row( sprintf( 'SELECT *, UNIX_TIMESTAMP(heartbeat_ts) AS last_heartbeat FROM queues WHERE queue_id = %d', $queue_id ) );
+        
+        if( isset( $rv['queue_id'] ) && isset( $this->processes[ $rv['queue_id'] ] ) ){
+            $rv[ 'running_pid' ] = $this->processes[$rv['queue_id']];
+        }
+
+        return( $rv );
+    }
+
     /**
      *   Return true if it appears the heartbeat row belongs to a dead queue
      */
@@ -318,6 +331,14 @@ class Queue {
 
     function heartbeat_process_is_dead( array $heartbeat ){
         return( isset( $this->processes ) && ! isset( $this->processes[ $heartbeat['queue_id'] ] ) );
+    }
+    
+    function heartbeat_process_is_stopping( array $heartbeat ){
+        return( isset( $heartbeat['status'] ) && ( $heartbeat['status'] == 'stop' || $heartbeat['status'] == 'dead:stopped' ) );
+    }
+    
+    function heartbeat_process_has_stopped( array $heartbeat ){
+        return( isset( $heartbeat['status'] ) && ( $heartbeat['status'] == 'dead:stopped' ) );
     }
 
     function heartbeat_has_timedout( array $heartbeat ){
@@ -388,6 +409,14 @@ class Queue {
             
             while( true ){
 
+                $res_status = $this->sql->query_first_row( sprintf( 'SELECT status FROM queues WHERE queue_id = %d', $this->queue_id ) );
+                if( isset( $res_status['status'] ) && $res_status['status'] == 'stop' ){
+                    $this->log( 'STOP', "received message to stop, exiting gracefully" );
+                    $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:stopped', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
+                    exit( 0 );
+                }
+                        
+                
                 if( $this->check_concurrent_queue( $queue_index ) ){
                     $this->sql->execute_query( sprintf( "UPDATE queues SET heartbeat_ts = FROM_UNIXTIME( %d ), status = 'dead:concurrent', queue_pid = NULL WHERE queue_id = %d", time(), $this->queue_id ) );
                     die( 'ERROR: concurrent queue exist, aborting' );
@@ -408,6 +437,61 @@ class Queue {
         }
     }
 
+    function clean_tasks_and_queues(){
+        $res_first = $this->sql->query_first_row( "SELECT task_id FROM `tasks` WHERE ts < NOW() - INTERVAL 45 DAY ORDER BY task_id DESC LIMIT 1" );
+        if( isset( $res_first['task_id'] ) ){
+            $first_task_id = intval($res_first['task_id']);
+            if ($first_task_id > 0) {
+                $res_total_tasks = $this->sql->query_first_row("SELECT COUNT(*) FROM `tasks`");
+                $res_keep_tasks = $this->sql->query_first_row(sprintf("SELECT COUNT(*) FROM `tasks` WHERE task_id >= %d", $first_task_id));
+                $total_tasks = $res_total_tasks['COUNT(*)'];
+                $keep_tasks = $res_keep_tasks['COUNT(*)'];
+                $this->sql->execute_query(sprintf('DELETE FROM `tasks` WHERE task_id < %d', $first_task_id));
+                $this->log('INFO', 'Deleting tasks from task_id = %d, keeping %d out of %d tasks', $first_task_id, $keep_tasks, $total_tasks);
+            } else {
+                $this->log('INFO',  'Did not find any tasks to delete');
+            }
+        }
+        
+        $res_first = $this->sql->query_first_row( "SELECT queue_id FROM `queues` WHERE queue_pid IS NULL AND ts < NOW() - INTERVAL 45 DAY ORDER BY queue_id DESC LIMIT 1" );
+        if( isset( $res_first['queue_id'] ) ){
+            $first_queue_id = intval($res_first['queue_id']);
+            if ($first_queue_id > 0) {
+                $res_total_queues = $this->sql->query_first_row("SELECT COUNT(*) FROM `queues`");
+                $res_keep_queues = $this->sql->query_first_row(sprintf("SELECT COUNT(*) FROM `queues` WHERE queue_id >= %d", $first_queue_id));
+                $total_queues = $res_total_queues['COUNT(*)'];
+                $keep_queues = $res_keep_queues['COUNT(*)'];
+                $this->sql->execute_query(sprintf('DELETE FROM `queues` WHERE queue_id < %d', $first_queue_id));
+                $this->log('INFO', 'Deleting queues from queue_id = %d, keeping %d out of %d queues', $first_queue_id, $keep_queues, $total_queues);
+            } else {
+                $this->log('INFO',  'Did not find any queue to delete');
+            }
+        }
+    }
+
+    function wait_for_queue_to_stop($heartbeat){
+        $queue_id = $heartbeat['queue_id'];
+        $this->find_running_queues();
+        $heartbeat = $this->heartbeat_for_queue_id($queue_id);
+
+        $safeguard = intval( $this->queue_timeout / $this-> queue_sleep );
+        
+        while( $safeguard > 0 && ! $this->heartbeat_process_has_stopped( $heartbeat ) && ! $this->heartbeat_has_timedout( $heartbeat ) ){
+            $this->log( 'INFO', 'Wait for Queue %d to stop', $queue_id );
+            print_r( $heartbeat );
+            sleep( $this->queue_sleep );
+            $this->find_running_queues();
+            $heartbeat = $this->heartbeat_for_queue_id($queue_id);
+            $safeguard -= 1;
+        }
+        if( ! $this->heartbeat_process_has_stopped( $heartbeat ) && ! $this->heartbeat_has_timedout( $heartbeat ) ){
+            $this->log( 'ERROR', 'Queue %d did not stopped', $queue_id );
+            $this->kill_queue( $heartbeat['queue_id'], $heartbeat['queue_pid'] );
+        }else{
+            $this->log( 'INFO', 'Queue %d stopped', $queue_id );
+        }
+    }
+    
     function start_queues(){
         $this->find_running_queues();
         
@@ -427,6 +511,8 @@ class Queue {
                         exec( $cmd );
                     }
                     $queue_need_restart = true;
+                }else if( $this->heartbeat_process_is_stopping( $heartbeat ) ){
+                    $this->wait_for_queue_to_stop( $heartbeat );
                 }else if( $this->heartbeat_is_running( $heartbeat ) ){
                     if( $this->heartbeat_process_is_dead( $heartbeat ) ){
                         $queue_need_restart = true;
@@ -450,7 +536,7 @@ class Queue {
                         if( isset( $this->processes[ $queue_id ] ) ){
                             $new_queue_pid = $this->processes[ $queue_id ];
                             
-                            $this->sql->execute_query( sprintf( "UPDATE queues SET queue_pid = %d, status = 'restarted' WHERE queue_id = %d", $new_queue_pid, $heartbeat['queue_id'] ) );
+                            $this->sql->execute_query( sprintf( "UPDATE queues SET queue_pid = %d, status = 'running' WHERE queue_id = %d", $new_queue_pid, $heartbeat['queue_id'] ) );
                             $heartbeat = $this->heartbeat_last( $queue_index );
                             $description = $this->heartbeat_queue_description( $queue_index, $heartbeat );
                         }
@@ -556,6 +642,21 @@ class Queue {
         return( $processes );
     }
 
+    function stop_queues(){
+        $this->find_running_queues();
+        for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
+            $queue_need_start = true;
+            $reason = NULL;
+            
+            $heartbeat = $this->heartbeat_last( $queue_index );
+            if( isset( $heartbeat['status'] ) && $heartbeat['status'] == 'running' ){
+                $desc = $this->heartbeat_queue_description( $queue_index, $heartbeat );
+                $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'stop' WHERE queue_id = %d", $heartbeat['queue_id'] ) );
+                printf( 'Stopping %s'.PHP_EOL, $desc );
+            }
+        }
+    }
+    
     function list_queues( ){
 
         $this->find_running_queues();
@@ -576,9 +677,15 @@ class Queue {
             }
         }
     }
+    
+    function kill_queue($queue_id, $queue_pid ){
+        $cmd = sprintf('kill -9 %d > /dev/null 2>&1', intval($queue_pid));
+        $this->log('KILL','Queue pid %d: %s' . PHP_EOL, $queue_id, $cmd);
+        exec($cmd);
+        $this->sql->execute_query(sprintf("UPDATE queues SET status = 'dead:killed', queue_pid = NULL WHERE queue_id = %d", $queue_id));
+    }
+    
     function kill_queues(){
-
-        
         for( $queue_index = 0 ; $queue_index < $this->queue_count; $queue_index++ ){
             $queue_need_start = true;
             
@@ -587,10 +694,7 @@ class Queue {
                 printf( 'Queue %d: no heartbeat'.PHP_EOL, $queue_index );
             }else {
                 if( $this->heartbeat_is_running( $heartbeat ) ){
-                    $cmd = sprintf( 'kill -9 %d > /dev/null 2>&1', intval( $heartbeat['queue_pid'] ) );
-                    printf( 'Queue %d: %s'.PHP_EOL, $queue_index, $cmd );
-                    exec( $cmd );
-                    $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:killed', queue_pid = NULL WHERE queue_id = %d", $heartbeat['queue_id'] ) );
+                    $this->kill_queue( $heartbeat['queue_id'], $heartbeat['queue_pid'] );
                 }
             }
         }
@@ -598,10 +702,7 @@ class Queue {
         $this->find_running_queues();
         while( count( $this->processes ) > 0 ){
             foreach( $this->processes as $queue_id => $queue_pid ){
-                $cmd = sprintf( 'kill -9 %d > /dev/null 2>&1', intval( $queue_pid ) );
-                printf( 'Queue pid %d: %s'.PHP_EOL, $queue_id, $cmd );
-                exec( $cmd );
-                $this->sql->execute_query( sprintf( "UPDATE queues SET status = 'dead:killed', queue_pid = NULL WHERE queue_id = %d", $queue_id ) );
+                $this->kill_queue( $queue_id, $queue_pid );
             }
             $this->find_running_queues();
         }
