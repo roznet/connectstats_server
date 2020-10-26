@@ -52,8 +52,10 @@ foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'c
     $total_count = $res['COUNT(*)'];
 
     $delete_query = sprintf( 'DELETE FROM %s WHERE ts < NOW() - INTERVAL %d DAY', $table, $max_days);
-    printf( 'INFO: Will delete %d entries out of %d from %s'.PHP_EOL, $delete_count, $total_count, $table );
-    printf( 'TODO: %s'.PHP_EOL, $delete_query );
+    $process->log( 'INFO', 'Will delete %d entries out of %d from %s', $delete_count, $total_count, $table );
+    if( ! $process->sql->execute_query( $delete_query ) ){
+        $process->log( 'ERROR', $delete_query );
+    }
 }
 
 if( ! $process->sql->table_exists( 'usage_summary' ) ){
@@ -65,10 +67,13 @@ if( ! $process->sql->table_exists( 'usage_summary' ) ){
     $process->sql->execute_query( $query );
 }
 $summarize_query = sprintf("INSERT INTO usage_summary (`day`,cs_user_id,`count`,`max_ts`,`min_ts`) SELECT date(ts) AS `day`,cs_user_id,COUNT(*) AS `count`,MAX(ts) AS `max_ts`,MIN(ts) AS `min_ts` FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),%d) GROUP BY date(ts),cs_user_id ORDER BY `day`,cs_user_id", $max_days );
-printf( 'TODO: %s'.PHP_EOL, $summarize_query );
-$delete_query = sprintf( "DELETE FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),%d)", $max_days );
-printf( 'TODO: %s'.PHP_EOL, $delete_query );
+if( ! $process->sql->execute_query( $summarize_query ) ){
+    die( 'failed to summarize' );
+}
 
-printf( 'EXIT: Success'.PHP_EOL );
+$delete_query = sprintf( "DELETE FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),%d)", $max_days );
+$process->sql->execute_query( $delete_query );
+
+$process->log( 'EXIT', 'Success' );
 exit();
 ?>
