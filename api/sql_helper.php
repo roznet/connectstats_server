@@ -328,10 +328,10 @@ class sql_helper {
 	function query_init( $query ){
 		$this->current_query_str = $query; // for ref
 		$this->lasterror = NULL;
-		$this->current_query = $this->connection->query( $query );
         if( $this->verbose ){
             $this->log('EXECUTE', $query );
         }
+		$this->current_query = $this->connection->query( $query );
         if( $this->verbose ){
             if( ! $this->current_query ){
                 $this->log('ERROR', $this->connection->error );
