@@ -41,20 +41,26 @@ $process->set_verbose(true);
 
 $process->ensure_commandline($argv??NULL);
 
-$max_days = 45;
+$max_days = 40;
 
 foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'cache_fitfiles_map' ) as $table ) {
-    $query = sprintf( "SELECT COUNT(*) FROM %s WHERE ts < NOW() - INTERVAL %d DAY", $table, $max_days );
+    $query = sprintf( "SELECT MAX(cache_id),COUNT(*) FROM %s WHERE ts < NOW() - INTERVAL %d DAY", $table, $max_days );
     $res = $process->sql->query_first_row( $query );
-    $delete_count = $res['COUNT(*)'];
-    $query = sprintf( "SELECT COUNT(*) FROM %s", $table);
-    $res = $process->sql->query_first_row( $query );
-    $total_count = $res['COUNT(*)'];
+    if( isset( $res['MAX(cache_id)'] ) ) {
+        $delete_count = $res['COUNT(*)'];
+        $delete_cache_id = intval($res['MAX(cache_id)']);
+        if( $delete_cache_id > 0 ) {
+            $query = sprintf("SELECT COUNT(*) FROM %s", $table);
+            $res = $process->sql->query_first_row($query);
+            $total_count = $res['COUNT(*)'];
 
-    $delete_query = sprintf( 'DELETE FROM %s WHERE ts < NOW() - INTERVAL %d DAY', $table, $max_days);
-    $process->log( 'INFO', 'Will delete %d entries out of %d from %s', $delete_count, $total_count, $table );
-    if( ! $process->sql->execute_query( $delete_query ) ){
-        $process->log( 'ERROR', $delete_query );
+            $delete_query = sprintf( 'DELETE FROM %s WHERE cache_id < %d', $table, $delete_cache_id );
+            $process->log('INFO', 'Will delete %d entries out of %d from %s', $delete_count, $total_count, $table);
+            if( !$process->sql->execute_query($delete_query) ){
+                $process->log('ERROR', $delete_query);
+            }
+            $process->sql->execute_query( sprintf('OPTIMIZE TABLE %s', $table) );
+        }
     }
 }
 
@@ -73,6 +79,7 @@ if( ! $process->sql->execute_query( $summarize_query ) ){
 
 $delete_query = sprintf( "DELETE FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),%d)", $max_days );
 $process->sql->execute_query( $delete_query );
+$process->sql->execute_query( 'OPTIMIZE TABLE `usage`' );
 
 $process->log( 'EXIT', 'Success' );
 exit();
