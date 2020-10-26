@@ -49,8 +49,14 @@ if( count( $remain ) > 0 ){
     case 'start':
         $queue->start_queues();
         break;
+    case 'clean':
+        $queue->clean_tasks_and_queues();
+        break;
     case 'list':
         $queue->list_queues();
+        break;
+    case 'stop':
+        $queue->stop_queues();
         break;
     case 'ps':
         $queue->find_running_queues(true);
