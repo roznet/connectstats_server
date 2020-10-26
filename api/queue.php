@@ -275,9 +275,6 @@ class Queue {
             }
             $this->completed += 1;
             $this->last_completed_ts = time();
-            if( $this->verbose ){
-                $this->log( 'MARK', $query );
-            }
             $done = true;
         }
         return $done;
