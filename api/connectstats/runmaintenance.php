@@ -41,8 +41,9 @@ $process->set_verbose(true);
 
 $process->ensure_commandline($argv??NULL);
 
-$max_days = 40;
+$max_days = 45;
 
+// Clear cache older than max days and optimize table
 foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'cache_fitfiles_map' ) as $table ) {
     $query = sprintf( "SELECT MAX(cache_id),COUNT(*) FROM %s WHERE ts < NOW() - INTERVAL %d DAY", $table, $max_days );
     $res = $process->sql->query_first_row( $query );
@@ -54,7 +55,7 @@ foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'c
             $res = $process->sql->query_first_row($query);
             $total_count = $res['COUNT(*)'];
 
-            $delete_query = sprintf( 'DELETE FROM %s WHERE cache_id < %d', $table, $delete_cache_id );
+            $delete_query = sprintf( 'DELETE FROM %s WHERE cache_id <= %d', $table, $delete_cache_id );
             $process->log('INFO', 'Will delete %d entries out of %d from %s', $delete_count, $total_count, $table);
             if( !$process->sql->execute_query($delete_query) ){
                 $process->log('ERROR', $delete_query);
@@ -64,6 +65,7 @@ foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'c
     }
 }
 
+// Summarized old usage and remove from the usage table
 if( ! $process->sql->table_exists( 'usage_summary' ) ){
     $query = "CREATE TABLE usage_summary (usage_summary_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, `day` DATE, `count` BIGINT(20) UNSIGNED, max_ts TIMESTAMP, min_ts TIMESTAMP)";
     $process->sql->execute_query( $query );
