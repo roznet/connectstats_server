@@ -860,7 +860,7 @@ class GarminProcess {
             $queue = new Queue();
             $queue->add_task( $command, getcwd() );
             if( $this->verbose ){
-                $this->log( 'QUEUE',  'Add task `%s`'.PHP_EOL, $command );
+                $this->log( 'QUEUE',  'Add task `%s`', $command );
             }
             if( file_exists( '../queue/queuectl.php' ) ){
                 $file_lock = sprintf( '%s/start_check_lock', $this->maintenance_writable_path('log') );
@@ -1457,7 +1457,7 @@ class GarminProcess {
             
                 $url = $callback_url;
                 $ntries = 3;
-                $nextwait = 5;
+                $nextwait = 1;
                 $data = false;
                 while( $ntries > 0 ){
                     $data = $this->get_url_data( $url, $userAccessToken, $userAccessTokenSecret );
@@ -1807,7 +1807,7 @@ class GarminProcess {
             }
         
             if( count( $to_set ) ){
-                $query = sprintf( "UPDATE `%s` SET %s WHERE summaryId = '%s'".PHP_EOL,  $table, implode( ', ', $to_set), $row['summaryId'] );
+                $query = sprintf( "UPDATE `%s` SET %s WHERE summaryId = '%s'",  $table, implode( ', ', $to_set), $row['summaryId'] );
                 if( ! $this->sql->execute_query( $query ) ){
                     $this->log( "ERROR",  $this->sql->lasterror );
                 }
