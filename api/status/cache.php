@@ -88,8 +88,6 @@ if( isset( $_GET['detail'] ) ){
 
 $rv = array(
 
-    'total_checked' => $n,
-    
     'old_activities' => $report_function(check_recent_ts( $process->sql->query_as_array( sprintf( 'SELECT activity_id,ts,FROM_UNIXTIME(startTimeInSeconds) AS startTimeInSeconds FROM activities ORDER BY activity_id DESC LIMIT %d', $n ) ),
                                      'ts'
     )),
@@ -111,6 +109,23 @@ $rv = array(
     )),
 
 );
+
+$status = 1;
+foreach( $rv as $key => $value ){
+    if( gettype( $value  ) == 'integer' ){
+        if( $value != 0){
+            $status = 0;
+        }
+    }else if( gettype( $value ) == 'array'){
+        if( count($value) != 0){
+            $status = 0;
+        }
+    }
+}
+$rv[ 'total_checked'] = $n;
+$rv[ 'status' ] = $status;
+    
+
 
 header('Content-Type: application/json');
 print( json_encode( $rv ) );
