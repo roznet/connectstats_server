@@ -1265,6 +1265,10 @@ class GarminProcess {
             $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
         } else {
             $weather = json_decode($data, true);
+            // Save space, no need to keep name of columns 
+            if( isset( $weather['columns'] ) ){
+                unset( $weather['columns'] );
+            }
         }
         return ($weather);
     }
