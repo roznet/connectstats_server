@@ -2350,17 +2350,15 @@ class GarminProcess {
             }
             $this->sql->insert_or_update( 'usage', $row );
 
-            if( false ){
-                $check = $this->sql->query_first_row(sprintf('SELECT * FROM `users_usage` WHERE cs_user_id = %d', intval($paging->cs_user_id)));
-                $yesterday = time() - (24.0 * 3600.0);
-                if (!isset($check['last_ts']) || strtotime($check['last_ts']) < $yesterday) {
-                    $ndays = 1;
-                    if (isset($check['days'])) {
-                        $ndays = intval($check['days']) + 1;
-                        $this->sql->execute_query(sprintf('UPDATE `users_usage` SET `days` = %d WHERE `cs_user_id` = %d', intval($ndays), intval($paging->cs_user_id)));
-                    } else {
-                        $this->sql->execute_query(sprintf('INSERT INTO `users_usage` (`cs_user_id`,`days`) VALUES( %d,%d )',  intval($paging->cs_user_id), $ndays,));
-                    }
+            $check = $this->sql->query_first_row(sprintf('SELECT * FROM `users_usage` WHERE cs_user_id = %d', intval($paging->cs_user_id)));
+            $yesterday = time() - (24.0 * 3600.0);
+            if (!isset($check['last_ts']) || strtotime($check['last_ts']) < $yesterday) {
+                $ndays = 1;
+                if (isset($check['days'])) {
+                    $ndays = intval($check['days']) + 1;
+                    $this->sql->execute_query(sprintf('UPDATE `users_usage` SET `days` = %d WHERE `cs_user_id` = %d', intval($ndays), intval($paging->cs_user_id)));
+                } else {
+                    $this->sql->execute_query(sprintf('INSERT INTO `users_usage` (`cs_user_id`,`days`) VALUES( %d,%d )',  intval($paging->cs_user_id), $ndays,));
                 }
             }
         }
