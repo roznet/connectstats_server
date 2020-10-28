@@ -649,9 +649,11 @@ class GarminProcess {
     }        
     
     function user_is_active( $cs_user_id ){
-        $query = sprintf( "SELECT * FROM `usage` WHERE ts > NOW() - INTERVAL 45 DAY AND cs_user_id = %d LIMIT 1", $cs_user_id );
+        $query = sprintf( "SELECT cs_user_id,last_ts FROM `users_usage` WHERE cs_user_id = %d LIMIT 1", $cs_user_id );
         $rv = $this->sql->query_first_row( $query );
-        if( $rv ) {
+        $threshold_45_days = time() - ( 24.0 * 3600.0 * 45.0 );
+
+        if( $rv && isset( $rv['last_ts'] ) && strtotime( $rv['last_ts'] ) > $threshold_45_days ) {
             return( true );
         }
         return false;
