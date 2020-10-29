@@ -28,7 +28,11 @@ if( $_GET['table'] ){
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){
         $key = $keys[$table];
         $key_start = $_GET[ $keys[$table] ];
-        $done = $process->maintenance_export_table( $table, $key, $key_start );
+        $key_offset = 0;
+        if( isset( $_GET[ 'key_offset' ] ) ){
+            $key_offset = intval( $_GET['key_offset'] );
+        }
+        $done = $process->maintenance_export_table( $table, $key, $key_start, $key_offset );
     }
 }
 // If _GET['cache'] = table (fitfiles|activities) _GET['cache_id'] = start cache_id _GET['n'] => max number
