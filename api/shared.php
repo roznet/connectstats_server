@@ -1600,9 +1600,29 @@ class GarminProcess {
                 $s3->putObject( $data, $bucket, $path );
             }
         }
+        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
+            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
+            if( is_dir( dirname( $local_cache_path ) ) || mkdir( dirname( $local_cache_path ), 0755, true ) ){
+                file_put_contents( $local_cache_path, $data );
+                if( $this->verbose ){
+                    $this->log( 'INFO', 'Saved s3 file to local cache %s', $local_cache_path );
+                }
+            }
+        }
     }
 
     function retrieve_from_s3_bucket($bucket,$path){
+        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
+            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
+            if( is_file( $local_cache_path ) ){
+                $data = file_get_contents( $local_cache_path );
+                if( $this->verbose ){
+                    $this->log( 'INFO', 'Read s3 file from local cache %s', $local_cache_path );
+                }
+                return $data;
+            }
+        }
+        
         if( substr($bucket, 0, 10) == 'localhost:' ){
             $basepath = substr($bucket,10);
             if( !$basepath ){
