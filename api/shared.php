@@ -1586,6 +1586,18 @@ class GarminProcess {
 
         return( $this->s3 );
     }
+
+    function save_to_s3_cache_if_applicable($path, $data ){
+        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
+            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
+            if( is_dir( dirname( $local_cache_path ) ) || mkdir( dirname( $local_cache_path ), 0755, true ) ){
+                file_put_contents( $local_cache_path, $data );
+                if( $this->verbose ){
+                    $this->log( 'INFO', 'Saved s3 file to local cache %s', $local_cache_path );
+                }
+            }
+        }
+    }
     function save_to_s3_bucket($bucket,$path,$data){
         if( substr($bucket, 0, 10) == 'localhost:' ){
             $basepath = substr($bucket,10);
@@ -1601,15 +1613,7 @@ class GarminProcess {
             if( $s3 ){
                 $s3->putObject( $data, $bucket, $path );
             }
-        }
-        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
-            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
-            if( is_dir( dirname( $local_cache_path ) ) || mkdir( dirname( $local_cache_path ), 0755, true ) ){
-                file_put_contents( $local_cache_path, $data );
-                if( $this->verbose ){
-                    $this->log( 'INFO', 'Saved s3 file to local cache %s', $local_cache_path );
-                }
-            }
+            $this->save_to_s3_cache_if_applicable($path, $data );
         }
     }
 
@@ -1638,6 +1642,7 @@ class GarminProcess {
                 $response = $s3->getObject( $bucket, $path );
                 if( isset( $response->body ) ){
                     $data = $response->body;
+                    $this->save_to_s3_cache_if_applicable($path, $data );
                 }else{
                     $data = NULL;
                 }
