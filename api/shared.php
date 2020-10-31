@@ -727,6 +727,8 @@ class GarminProcess {
         }
         if( $success && $last_insert ){
             $this->exec_activities_cmd( $table, $last_insert );
+        }else{
+            $this->status->record($this->sql,$rawdata);
         }
         return $success;
     }
