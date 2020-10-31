@@ -415,7 +415,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 7;
+        $schema_version = 8;
         $schema = array(
             "usage" => array(
                 'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -430,6 +430,12 @@ class GarminProcess {
                 'userId' => 'VARCHAR(128)',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+            ),
+            "users_usage" => array(
+                'cs_user_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
+                'days' => 'BIGINT(20) UNSIGNED',
+                'last_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'first_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
             ),
             "tokens" => array(
                 'token_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -643,9 +649,11 @@ class GarminProcess {
     }        
     
     function user_is_active( $cs_user_id ){
-        $query = sprintf( "SELECT * FROM `usage` WHERE ts > NOW() - INTERVAL 45 DAY AND cs_user_id = %d LIMIT 1", $cs_user_id );
+        $query = sprintf( "SELECT cs_user_id,last_ts FROM `users_usage` WHERE cs_user_id = %d LIMIT 1", $cs_user_id );
         $rv = $this->sql->query_first_row( $query );
-        if( $rv ) {
+        $threshold_45_days = time() - ( 24.0 * 3600.0 * 45.0 );
+
+        if( $rv && isset( $rv['last_ts'] ) && strtotime( $rv['last_ts'] ) > $threshold_45_days ) {
             return( true );
         }
         return false;
@@ -2001,7 +2009,7 @@ class GarminProcess {
         }
     }
     
-    function maintenance_export_table( $table, $key, $key_start ){
+    function maintenance_export_table( $table, $key, $key_start, $key_offset = 0 ){
         $done = false;
 
 	    $tmp_path = $this->maintenance_writable_path('tmp');
@@ -2010,10 +2018,17 @@ class GarminProcess {
             // Make sure there is anything to do
             $query = sprintf( 'SELECT MAX(%s) AS maxkey FROM `%s`', $key, $table );
             $max = $this->sql->query_first_row( $query );
+
+            $key_max = NULL;
             if( isset( $max['maxkey'] ) ){
-                if( intval( $max['maxkey'] ) <= intval($key_start) ){
+                $key_max = intval( $max['maxkey'] );
+                if( $key_offset > 0 ){
+                    $key_max =  $key_max - $key_offset;
+                }
+                
+                if( $key_max <= intval($key_start) ){
                     # this is printed to mysql so -- as comment
-                    $this->log( '-- INFO', 'new' );
+                    $this->log( '-- INFO', 'nothing new' );
                     return true;
                 }
             }
@@ -2022,7 +2037,7 @@ class GarminProcess {
             $db = $this->api_config['database'];
             $outfile = sprintf( '%s/%s_%s.sql', $tmp_path, $table, $key_start );
             $logfile = sprintf( '%s/%s_%s.log', $tmp_path, $table, $key_start );
-            $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $db );
+            $defaults = sprintf( '%s/.%s_%s.cnf', $tmp_path, $db, $table );
             file_put_contents( $defaults, sprintf( '[mysqldump]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
             chmod( $defaults, 0600 );
             $limit = '';
@@ -2035,11 +2050,17 @@ class GarminProcess {
                 header('HTTP/1.1 500 Internal Server Error');
                 die;
             }
-            $command = sprintf( '%s --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s>%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $key, $key_start, $limit );
+            $where = sprintf( "%s>%s", $key, $key_start );
+            if( $key_max && $key_offset > 0 ){
+                $where = sprintf( "%s AND %s<%s", $where, $key, $key_max );
+            }
+            
+            $command = sprintf( '%s --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
             exec( "$command > $logfile 2>&1" );
+            unlink( $defaults );
 
             if( is_readable( $outfile ) ){
                 if( $this->verbose ){
@@ -2342,8 +2363,20 @@ class GarminProcess {
                     $row[$key] = $_SERVER[$key];
                 }
             }
+            $this->sql->insert_or_update( 'usage', $row );
+
+            $check = $this->sql->query_first_row(sprintf('SELECT * FROM `users_usage` WHERE cs_user_id = %d', intval($paging->cs_user_id)));
+            $yesterday = time() - (24.0 * 3600.0);
+            if (!isset($check['last_ts']) || strtotime($check['last_ts']) < $yesterday) {
+                $ndays = 1;
+                if (isset($check['days'])) {
+                    $ndays = intval($check['days']) + 1;
+                    $this->sql->execute_query(sprintf('UPDATE `users_usage` SET `days` = %d WHERE `cs_user_id` = %d', intval($ndays), intval($paging->cs_user_id)));
+                } else {
+                    $this->sql->execute_query(sprintf('INSERT INTO `users_usage` (`cs_user_id`,`days`) VALUES( %d,%d )',  intval($paging->cs_user_id), $ndays,));
+                }
+            }
         }
-        $this->sql->insert_or_update( 'usage', $row );
     }
 };
     
