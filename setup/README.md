@@ -141,3 +141,28 @@ SELECT * FROM `activities` WHERE userId = '%s' AND startTimeInSeconds = %d
 
 ## query_list
 
+```sql
+SELECT 
+	a.activity_id, 
+	JSON_EXTRACT(a.`json`,'$.durationInSeconds') as durationInSeconds, 
+	JSON_EXTRACT(a.`json`,'$.distanceInMeters') as distanceInMeters, 
+	JSON_EXTRACT(a.`json`,'$.activityType'), 
+	FROM_UNIXTIME(JSON_EXTRACT(a.`json`,'$.startTimeInSeconds')) as startTime,
+	JSON_EXTRACT(a.`json`,'$.startTimeInSeconds') as utcTimeStamp,
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.latitude') as latitude,
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.longitude') as longitude,
+	JSON_EXTRACT(w.`json`,'$.darkSky.timezone')   as darkSkyTimeZone, 
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.tz') as VisualCrossingtimeZone,
+	JSON_EXTRACT(w.`json`,'$.darkSky.currently.temperature')   as darkSkyTemperature, 
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.values[0].temp') as VisualCrossingTemperature, 
+
+	JSON_EXTRACT(w.`json`,'$.darkSky.currently.windSpeed') * 3.6  as darkSkyWindSpeed, 
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.values[0].wspd') as VisualCrossingWindSpeed, 
+
+	JSON_EXTRACT(w.`json`,'$.darkSky.currently.summary') as darkSkyWeather, 
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.currentConditions') as VisualCrossingWeather
+FROM activities a, weather w
+WHERE a.file_id = w.file_id 
+ORDER BY activity_id DESC
+Limit 200;
+```
