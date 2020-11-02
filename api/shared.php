@@ -552,6 +552,8 @@ class GarminProcess {
     function deregister_user(){
         $this->ensure_schema();
         
+        $this->status->clear('users');
+        
         $end_points_fields = array(
             'userId' => 'VARCHAR(1024)',
         );
@@ -580,13 +582,15 @@ class GarminProcess {
             }
         }
         if( $this->status->hasError() ){
-            $this->status->record( 'deregistration', $rawdata );
+            $this->status->record( $this->sql, $rawdata );
         }
         return $this->status->success();
     }
     
     function register_user( $userAccessToken, $userAccessTokenSecret ){
         $this->ensure_schema();
+        
+        $this->status->clear('users');
 
         $values = array( 'userAccessToken' => $userAccessToken,
                          'userAccessTokenSecret' => $userAccessTokenSecret
@@ -609,21 +613,31 @@ class GarminProcess {
                     $cs_user_id = $this->sql->insert_id();
                 }
             }else{
+                $this->status->error( "missing userId in response $user" );
+                $this->status->record( $this->sql, $values  );
                 # If we didn't get a user id from garmin, just die as unauthorized
                 # this will avoid people registering random token
                 header('HTTP/1.1 401 Unauthorized error');
                 die;
             }
             $values['cs_user_id'] = $cs_user_id;
+        }else{
+            $this->status->error( sprintf( 'failed to get url data for %s', $userAccessToken ) );
         }
 
-        $this->sql->insert_or_update( 'tokens', $values, array( 'userAccessToken' ) );
+        if( !$this->sql->insert_or_update( 'tokens', $values, array( 'userAccessToken' ) ) ){
+            $this->status->error( sprintf( 'failed to get save data for %s', $userAccessToken ) );
+        }
         $token_id = $this->sql->insert_id();
         
         $query = sprintf( "SELECT userAccessToken,userId,token_id,cs_user_id FROM tokens WHERE userAccessToken = '%s'", $userAccessToken );
 
         $rv = $this->sql->query_first_row( $query );
 
+        if( $this->status->hasError() ) {
+            $this->status->record($this->sql,$values);
+        }
+        
         return $rv;
     }
 
@@ -655,6 +669,13 @@ class GarminProcess {
 
         if( $rv && isset( $rv['last_ts'] ) && strtotime( $rv['last_ts'] ) > $threshold_45_days ) {
             return( true );
+        }
+        if( $this->verbose ){
+            if( isset( $rv['last_ts'] ) ){
+                $this->log( 'WARNING', 'User %d inactive since %s', $cs_user_id, $rv['last_ts'] );
+            }else{
+                $this->log( 'WARNING', 'User %d inactive', $cs_user_id );
+            }
         }
         return false;
     }
@@ -1450,13 +1471,17 @@ class GarminProcess {
             if( ! $user ){
                 $this->status->error( "unregistered user for $userAccessToken" );
             }
+            if( isset( $user['cs_user_id'] ) && intval( $user['cs_user_id'] ) > 0 ){
+                if( ! $this->user_is_active( intval( $user['cs_user_id'] ) ) ){
+                    return;
+                }
+            }
 
             if( isset( $row['fileType'] ) ){
                 $fileType = strtolower( $row['fileType'] );
             }else{
                 $fileType = 'fit';
             }
-
 
             $path = $this->file_path_for_file_row( $row );
             $fnamebase = basename( $path );
@@ -1587,6 +1612,20 @@ class GarminProcess {
         return( $this->s3 );
     }
 
+    function retrieve_from_s3_cache_if_available( $path ){
+        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
+            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
+            if( is_file( $local_cache_path ) ){
+                $data = file_get_contents( $local_cache_path );
+                if( $this->verbose ){
+                    $this->log( 'INFO', 'Read s3 file from local cache %s', $local_cache_path );
+                }
+                return $data;
+            }
+        }
+        return NULL;
+    }
+    
     function save_to_s3_cache_if_applicable($path, $data ){
         if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
             $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
@@ -1595,6 +1634,15 @@ class GarminProcess {
                 if( $this->verbose ){
                     $this->log( 'INFO', 'Saved s3 file to local cache %s', $local_cache_path );
                 }
+            }
+        }
+    }
+
+    function remove_from_s3_cache( $path ){
+        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
+            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
+            if( is_file( $local_cache_path ) ){
+                unlink( $local_cache_path );
             }
         }
     }
@@ -1618,17 +1666,10 @@ class GarminProcess {
     }
 
     function retrieve_from_s3_bucket($bucket,$path){
-        if( isset( $this->api_config['s3_cache_local'] ) && is_dir($this->api_config['s3_cache_local']) ){
-            $local_cache_path = sprintf( '%s/%s', $this->api_config['s3_cache_local'], $path );
-            if( is_file( $local_cache_path ) ){
-                $data = file_get_contents( $local_cache_path );
-                if( $this->verbose ){
-                    $this->log( 'INFO', 'Read s3 file from local cache %s', $local_cache_path );
-                }
-                return $data;
-            }
+        $data = $this->retrieve_from_s3_cache_if_available( $path );
+        if( $data ){
+            return $data;
         }
-        
         if( substr($bucket, 0, 10) == 'localhost:' ){
             $basepath = substr($bucket,10);
             if( !$basepath ){
@@ -2178,6 +2219,17 @@ class GarminProcess {
         return $newdata;
     }
 
+    function maintenance_clean_cache_for_asset_row($row){
+        if (isset($this->api_config[ 's3_cache_local'] ) &&  substr($row['path'], 0, 3) == 's3:') {
+            $s3_path = substr($row['path'], 3, strlen($row['path']));
+
+            if ($this->verbose) {
+                $this->log('S3', 'Clear %s from s3 cache', $s3_path );
+            }
+            $this->remove_from_s3_cache($s3_path );
+        }
+    }
+    
     function data_from_asset_row($row){
         $rv = NULL;
         if( isset( $row['path'] ) ){
