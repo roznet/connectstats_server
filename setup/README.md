@@ -160,7 +160,7 @@ SELECT
 	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.values[0].wspd') as VisualCrossingWindSpeed, 
 
 	JSON_EXTRACT(w.`json`,'$.darkSky.currently.summary') as darkSkyWeather, 
-	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.currentConditions') as VisualCrossingWeather
+	JSON_EXTRACT(w.`json`,'$.visualCrossing.location.values[0].conditions') as VisualCrossingWeather
 FROM activities a, weather w
 WHERE a.file_id = w.file_id 
 ORDER BY activity_id DESC
