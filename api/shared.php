@@ -1218,8 +1218,15 @@ class GarminProcess {
 
 
     function should_fit_extract( $file_id ){
-        $query = sprintf( 'select file_id,cs_user_id,startTimeInSeconds FROM fitfiles WHERE file_id = %d', $file_id );
+        $query = sprintf( 'select file_id,cs_user_id,startTimeInSeconds,fileType FROM fitfiles WHERE file_id = %d', $file_id );
         $should = $this->sql->query_first_row( $query );
+        if( isset( $should['fileType'] ) && strtolower( $should['fileType'] ) != 'fit' ){
+            if( $this->verbose ){
+                $this->log( 'INFO', "Skipping extract of non fit file %s", $should['fileType'] );
+            }
+            return false;
+        }
+        
         if( isset($should['startTimeInSeconds']) ){
             if( ! $this->ignore_time_threshold( intval( $should['startTimeInSeconds'] ), 'ignore_fitextract_hours_threshold', NULL ) ){
                 if( isset( $should['cs_user_id'] ) ){
