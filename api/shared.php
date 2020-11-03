@@ -613,6 +613,10 @@ class GarminProcess {
                     $cs_user_id = $this->sql->insert_id();
                 }
             }else{
+                # If failed, still registeer token/secret as it may be valid later (race condition in creation once in a while)
+                if( !$this->sql->insert_or_update( 'tokens', $values, array( 'userAccessToken' ) ) ){
+                    $this->status->error( sprintf( 'failed to get save data for %s', $userAccessToken ) );
+                }
                 $this->status->error( "missing userId in response $user" );
                 $this->status->record( $this->sql, $values  );
                 # If we didn't get a user id from garmin, just die as unauthorized
@@ -666,7 +670,6 @@ class GarminProcess {
         $query = sprintf( "SELECT cs_user_id,last_ts FROM `users_usage` WHERE cs_user_id = %d LIMIT 1", $cs_user_id );
         $rv = $this->sql->query_first_row( $query );
         $threshold_45_days = time() - ( 24.0 * 3600.0 * 45.0 );
-
         if( $rv && isset( $rv['last_ts'] ) && strtotime( $rv['last_ts'] ) > $threshold_45_days ) {
             return( true );
         }
@@ -1150,6 +1153,7 @@ class GarminProcess {
         }
 
         $data = curl_exec($ch);
+
         if( $data === false ) {
             $this->status->error( sprintf( 'CURL Failed %s', curl_error($ch ) ) );
         }
@@ -1200,7 +1204,10 @@ class GarminProcess {
      *   Validate the data is a valid fit file by looking at
      *   expected bytes in header
      */
-    function validate_fit_file( $data ){
+    function validate_fit_file( $data, $fileType ){
+        if( $fileType == 'xml' || $fileType == 'gpx' ){
+            return( substr( $data, 0, 5 ) == '<?xml' );
+        }
         if( strlen($data) < 13 ){
             return false;
         }
@@ -1500,13 +1507,22 @@ class GarminProcess {
                 $data = false;
                 while( $ntries > 0 ){
                     $data = $this->get_url_data( $url, $userAccessToken, $userAccessTokenSecret );
-                    if( $data && $this->validate_fit_file($data) ){
+                    if( $data ){
+                        $validFormat = $this->validate_fit_file($data, $fileType);
+                    }else{
+                        $validFormat = false;
+                    }
+                    if( $data && $validFormat ){
                         $ntries = 0;
                     }else{
-                        $data = false;
                         if( $this->verbose ){
-                            $this->log( "ERROR","Failed to get callback data for $cbid, sleeping $nextwait" );
+                            if( $data && !$validFormat){
+                                $this->log( "ERROR","Invalid file data for $fileType format for $cbid, sleeping $nextwait" );
+                            }else{
+                                $this->log( "ERROR","Failed to get callback data for $cbid, sleeping $nextwait" );
+                            }
                         }
+                        $data = false;
                         $ntries-=1;
                         if( $ntries > 0 ){
                             $this->sleep( $nextwait );
@@ -1516,7 +1532,11 @@ class GarminProcess {
                 }
 
                 if($data === false ){
-                    $this->status->error( 'Failed to get data' );
+                    if( $validFormat ){
+                        $this->status->error( 'Failed to get data' );
+                    }else{
+                        $this->status->error( "Got invalid format data for $fileType" );
+                    }
 
                     $row = array(
                         'tablename' => $table,
