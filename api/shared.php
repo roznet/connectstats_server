@@ -1205,7 +1205,7 @@ class GarminProcess {
      *   expected bytes in header
      */
     function validate_fit_file( $data, $fileType ){
-        if( $fileType == 'xml' || $fileType == 'gpx' ){
+        if( $fileType == 'tcx' || $fileType == 'gpx' ){
             return( substr( $data, 0, 5 ) == '<?xml' );
         }
         if( strlen($data) < 13 ){
