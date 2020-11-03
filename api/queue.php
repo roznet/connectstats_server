@@ -128,7 +128,18 @@ class Queue {
         $fmt = array_shift( $args );
 
         $msg = vsprintf( $fmt, $args );
-        
+
+        $indexes = array();
+        if( isset( $this->queue_index ) ){
+            $indexes = array( $this->queue_index );
+        }
+        if( isset( $this->queue_id ) ){
+            $indexes = array_merge( $indexes, array( $this->queue_id ) );
+        }
+
+        if( count( $indexes ) > 0 ){
+            $tag = sprintf( '%s[%s]', $tag, implode( ',', $indexes ) );
+        }
         printf( "%s:%s: %s".PHP_EOL, date("Y-m-d h:i:s"), $tag, $msg );
     }
    
@@ -387,8 +398,8 @@ class Queue {
         }
 
         $queue_index = $queue['queue_index'];
+        $this->queue_index = $queue_index;
         $this->queue_id = $queue_id;
-
         
         if( $queue_index >= $this->queue_count || $queue_index < 0){
             die( sprintf( 'ERROR: Invalid id number for queue, aborting queue_id=%d', $this->queue_id ) );
@@ -400,7 +411,7 @@ class Queue {
         
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
-                $this->log( 'START', 'Starting queue_id=%d index=%d pid=%d'.PHP_EOL, $this->queue_id, $queue_index, getmypid() );
+                $this->log( 'START', 'Starting queue_id=%d index=%d pid=%d', $this->queue_id, $queue_index, getmypid() );
             }
             $execution_mode = false;
             
