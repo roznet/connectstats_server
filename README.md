@@ -1,6 +1,6 @@
 # Web Service to ConnectStats and Garmin Health API
 
-
+![Icon](https://github.com/roznet/connectstats/raw/master/ConnectStats/Media.xcassets/ConnectStatsNewAppIcon.appiconset/ConnectStatsNewAppIcon76.png) 
 This is an implementation of a server for [ConnectStats](https://github.com/roznet/connectstats) using [php](https://www.php.net) and [mysql](https://www.mysql.com)
 
 This is intended to both provide and API to be registered from [Garmin Health API](https://developer.garmin.com/health-api/overview/) and a server that can query the resulting saved data.
