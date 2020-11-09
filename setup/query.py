@@ -128,6 +128,12 @@ class ConnectStatsRequest:
             print( '> Request {}'.format( accessUrl ) )
         
         headers = self.authentification_header( accessUrl )
+        if self.verbose:
+            print( '> Request Headers' )
+            for h,v in headers.items():
+                print( '>   {}: {}'.format( h, v ) )
+                
+            
         pm = urllib3.PoolManager()
 
         response = pm.request('GET', accessUrl, headers=headers )
@@ -135,6 +141,9 @@ class ConnectStatsRequest:
         if response.status == 200:
             contents = response.data
             if self.verbose:
+                print( '> Response Headers' )
+                for h,v in response.headers.items():
+                    print( '>   {}: {}'.format( h, v ) )
                 print( '> Received {} bytes'.format( len(contents) ) )
         else:
             message = http.client.responses[response.status]
