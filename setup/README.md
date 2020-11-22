@@ -92,14 +92,14 @@ CREATE INDEX fitfiles_summaryId_index ON fitfiles (summaryId);
 
 CREATE INDEX activities_startTimeInSeconds_index ON activities (startTimeInSeconds);
 CREATE INDEX activities_cs_user_id ON activities (cs_user_id);
+CREATE INDEX activities_summaryId ON activities ( summaryId );
 
 CREATE INDEX tokens_userAccess ON tokens (userAccessToken);
-CREATE INDEX activities_summaryId ON activities ( summaryId );
 
 CREATE INDEX usage_ts_index ON `usage` (ts);
 ```
 
-## user_info, authenticate_header()
+## User_info, authenticate_header()
 
 ```
 SELECT * FROM tokens WHERE userAccessToken = '%s'
