@@ -242,7 +242,11 @@ class Queue {
      */
     function run_one_task( $queue_index ){
         $done = false;
-        $query = sprintf( 'SELECT * FROM tasks WHERE MOD(task_id,%d) = %d AND (finished_ts IS NULL ) AND ( not_before_ts IS NULL || CURRENT_TIMESTAMP() > not_before_ts ) ORDER BY ts LIMIT 1', $this->queue_count, $queue_index );
+        if( isset( $this->last_task_id ) ){
+            $query = sprintf( 'SELECT * FROM tasks WHERE task_id > %d AND MOD(task_id,%d) = %d AND (finished_ts IS NULL ) AND ( not_before_ts IS NULL || CURRENT_TIMESTAMP() > not_before_ts ) ORDER BY ts LIMIT 1', $this->last_task_id, $this->queue_count, $queue_index );
+        }else{
+            $query = sprintf( 'SELECT * FROM tasks WHERE MOD(task_id,%d) = %d AND (finished_ts IS NULL ) AND ( not_before_ts IS NULL || CURRENT_TIMESTAMP() > not_before_ts ) ORDER BY ts LIMIT 1', $this->queue_count, $queue_index );
+        }
         $row = $this->sql->query_first_row( $query );
 
         if( $row && isset( $row['task_id'] ) ){
@@ -284,6 +288,7 @@ class Queue {
             if( !$this->sql->execute_query( $query ) ){
                 $this->log( "ERROR", "%s %s", $query, $this->sql->lasterror );
             }
+            $this->last_task_id = $task_id;
             $this->completed += 1;
             $this->last_completed_ts = time();
             $done = true;
@@ -408,7 +413,7 @@ class Queue {
         if( $concurrent ){
             die( sprintf( "ERROR: aborting start of queue_id %d, concurent queue %d exists for index %d".PHP_EOL, $queue_id, $concurrent['queue_id'], $queue_index ) );
         }
-        
+        $this->sql->verbose = true;
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
                 $this->log( 'START', 'Starting queue_id=%d index=%d pid=%d', $this->queue_id, $queue_index, getmypid() );
