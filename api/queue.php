@@ -413,7 +413,7 @@ class Queue {
         if( $concurrent ){
             die( sprintf( "ERROR: aborting start of queue_id %d, concurent queue %d exists for index %d".PHP_EOL, $queue_id, $concurrent['queue_id'], $queue_index ) );
         }
-        $this->sql->verbose = true;
+
         if( $this->sql->insert_or_update( 'queues', array( 'queue_pid' => getmypid(), 'status' => 'running', 'queue_id' => $queue_id ), array( 'queue_id' ) ) ){
             if( $this->verbose ){
                 $this->log( 'START', 'Starting queue_id=%d index=%d pid=%d', $this->queue_id, $queue_index, getmypid() );
