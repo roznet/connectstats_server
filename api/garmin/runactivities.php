@@ -50,6 +50,6 @@ if( isset( $argv[1] ) ){
         print( 'error' );
     }
 }
-printf( 'EXIT: Success'.PHP_EOL );
+$process->log( 'EXIT', 'Success' );
 exit();
 ?>
