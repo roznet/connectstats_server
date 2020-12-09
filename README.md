@@ -51,6 +51,6 @@ You can then use the `https:{baseurl}/api/connectstats/search` entry point to ob
 
 You can use the `https:{baseurl}/api/connectstats/file` entry point to obtain the fit file, if available, for the corresponding activity_id.
 
-# External Dependencies
+## External Dependencies
 
 This project uses [phpFITFileAnalysis.php](https://github.com/adriangibbons/php-fit-file-analysis) for parsing FIT files in php and [phpliteadmin](https://www.phpliteadmin.org) for convenience to look at data in bug reports.
