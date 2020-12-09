@@ -41,7 +41,7 @@ SELECT num AS total_queries, COUNT(cs_user_id) AS user_count FROM ( SELECT cs_us
 ## Number of users by day
 
 ```
-SELECT `date`, COUNT(cs_user_id) AS user_count FROM ( SELECT DATE(ts) as `date`,cs_user_id, count(*) as num FROM garmin_new.`usage` WHERE  ts > NOW() - INTERVAL 5 DAY GROUP BY cs_user_id, `date` ORDER BY NUM DESC ) AS table1 GROUP BY `date`;
+SELECT `date`, COUNT(cs_user_id) AS user_count FROM ( SELECT DATE(ts) as `date`,cs_user_id, count(*) as num FROM `usage` WHERE  ts > NOW() - INTERVAL 5 DAY GROUP BY cs_user_id, `date` ORDER BY NUM DESC ) AS table1 GROUP BY `date`;
 ```
 
 ## Number of pushed activities by day in the last week
