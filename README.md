@@ -13,13 +13,7 @@ If you find an issue with security or ability to extract data not intended for t
 
 ### Getting the code ready
 
-Checkout the code in your web server directory, and copy/edit `config.sample.php` into `config.php` with the appropriate info and keys
-You can create a tmp directory in api/garmin with permission for web user (to save tmp log files):
-
-```
-mkdir api/garmin/tmp
-chmod ugo+wc api/garmin/tmp
-```
+Checkout the code in your web server directory, and copy/edit `config.sample.php` into `config.php` with the appropriate info, directory configurations and keys
 
 If you want to also include weather data, you can obtain a key from [darkSkyNet](https://darksky.net/dev) and add it to the config file.
 
@@ -57,3 +51,6 @@ You can then use the `https:{baseurl}/api/connectstats/search` entry point to ob
 
 You can use the `https:{baseurl}/api/connectstats/file` entry point to obtain the fit file, if available, for the corresponding activity_id.
 
+# External Dependencies
+
+This project uses [phpFITFileAnalysis.php](https://github.com/adriangibbons/php-fit-file-analysis) for parsing FIT files in php and [phpliteadmin](https://www.phpliteadmin.org) for convenience to look at data in bug reports.
