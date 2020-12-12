@@ -2150,7 +2150,7 @@ class GarminProcess {
                 $where = sprintf( "%s AND %s<%s", $where, $key, $key_max );
             }
             
-            $command = sprintf( '%s --single-transaction=TRUE --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
+            $command = sprintf( '%s --defaults-file=%s --single-transaction=TRUE -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
