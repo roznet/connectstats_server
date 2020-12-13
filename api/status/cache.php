@@ -112,12 +112,11 @@ class CacheCheck {
             }else{
                 $this->rv['errors'] = [ $error ];
             }
-            $this->status = 0;
         }else{
-            if( count( $rows) > 0 ){
+            $report =  $this->$check_function( $rows );
+            if( count( $report) > 0 ){
                 $this->status = 0;
             }
-            $report =  $this->$check_function( $rows );
             if( $this->detail ){
                 $this->rv[$tag] = $report;
             }else{
