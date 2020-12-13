@@ -40,17 +40,33 @@ class CacheCheck {
             $this->set_verbose( true );
         }
 
-        # for extension, could be parameter
-        $this->n = 10;
         $this->max_seconds = 10;
+        if( isset( $_GET['max_seconds'] ) ){
+            $this->max_seconds = intval( $_GET['max_seconds'] );
+            if( $this->max_seconds < 1 ){
+                $this->max_seconds = 10;
+            }
+        }
         
+        $this->n = 10;
         if( isset( $_GET['n'] ) ){
             $this->n = intval( $_GET['n'] );
             if( $this->n < 1 || $this->n > 100 ){
                 $this->n = 10;
             }
         }
-
+        
+        $this->threshold = time() - (3600.0);
+        if( isset( $_GET['threshold'] ) ){
+            $seconds = intval( $_GET['threshold'] );
+            if( $seconds > 0 ){
+                $this->threshold = time() - $seconds;
+                if( $this->threshold < 0 ){
+                    $this->threshold = time() - (3600.0);
+                }
+            }
+        }
+        
         if( isset( $_GET['detail'] ) ){
             $this->detail = true;
             $this->report_function = function($x) { return $x; };
@@ -58,7 +74,6 @@ class CacheCheck {
             $this->detail = false;
             $this->report_function = 'count';
         }
-        $this->threshold = time() - (3600.0);
    }
 
     function set_verbose( $verbose ){
@@ -97,7 +112,14 @@ class CacheCheck {
             $time = $processed - $started;
 
             if( $time > $this->max_seconds ){
+                if( $this->verbose ){
+                    printf( 'SLOW %s secs > %s secs (%s - %s)'.PHP_EOL, $time, $this->max_seconds, date( DATE_RFC2822, $processed ), date( DATE_RFC2822, $started ) );
+                }
                 array_push( $rv, $row );
+            }else{
+                if( $this->verbose ){
+                    printf( 'FAST %s secs < %s secs (%s - %s)'.PHP_EOL, $time, $this->max_seconds, date( DATE_RFC2822, $processed ), date( DATE_RFC2822, $started ) );
+                }
             }
         }
         return( $rv );
