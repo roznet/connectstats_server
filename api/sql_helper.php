@@ -332,11 +332,11 @@ class sql_helper {
             $this->log('EXECUTE', $query );
         }
 		$this->current_query = $this->connection->query( $query );
-        if( $this->verbose ){
-            if( ! $this->current_query ){
+        if( ! $this->current_query ){
+			$this->lasterror = $this->connection->error;
+            if( $this->verbose ){
                 $this->log('ERROR', $this->connection->error );
             }
-			$this->lasterror = $this->connection->error;
 		};
 		return( $this->current_query );
 	}

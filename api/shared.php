@@ -2150,7 +2150,7 @@ class GarminProcess {
                 $where = sprintf( "%s AND %s<%s", $where, $key, $key_max );
             }
             
-            $command = sprintf( '%s --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
+            $command = sprintf( '%s --defaults-file=%s --single-transaction=TRUE -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
@@ -2230,7 +2230,8 @@ class GarminProcess {
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
             $outsize = filesize( $sql_out );
-            if( $outsize > 20 ){
+            # Really should check it output is starts with --INFO and ends with nothing new 
+            if( $outsize > 30 ){
                 $this->log( 'OUT','Got new data for %s (%d bytes)', $table, $outsize );
                 $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
                 file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
