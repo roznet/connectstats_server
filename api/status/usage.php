@@ -36,8 +36,8 @@ $command_line = isset( $argv[0] ) && ! isset( $_SERVER['HTTP_HOST'] );
 if( ! $command_line ){
     $process->authenticate_system_call();    
 }
-$activities = $process->sql->query_as_array( 'SELECT count(*) AS `activity_count`,DATE(ts) as `date` FROM cache_activities WHERE ts > NOW() - INTERVAL 1 WEEK GROUP BY DATE(ts)' );
-$users = $process->sql->query_as_array( 'SELECT `date`, COUNT(cs_user_id) AS user_count FROM ( SELECT DATE(ts) as `date`,cs_user_id, count(*) as num FROM `usage` WHERE  ts > NOW() - INTERVAL 1 WEEK GROUP BY cs_user_id, `date` ORDER BY NUM DESC ) AS table1 GROUP BY `date` ORDER BY `date`' );
+$activities = $process->sql->query_as_array( 'SELECT count(*) AS `activity_count`,DATE(ts) as `date` FROM cache_activities WHERE ts > NOW() - INTERVAL 2 WEEK GROUP BY DATE(ts)' );
+$users = $process->sql->query_as_array( 'SELECT `date`, COUNT(cs_user_id) AS user_count FROM ( SELECT DATE(ts) as `date`,cs_user_id, count(*) as num FROM `usage` WHERE  ts > NOW() - INTERVAL 2 WEEK GROUP BY cs_user_id, `date` ORDER BY NUM DESC ) AS table1 GROUP BY `date` ORDER BY `date`' );
 
 
 function group( $summary, $tag, $rows ){
