@@ -889,6 +889,13 @@ class GarminProcess {
         return $rv;
     }
 
+    /**
+     *  execute a command and log output in a file
+     *  Based on the configuration this function will try to:
+     *      - run the command in a queue, 
+     *      - start new queues if non appear running
+     *  If no queue configured it will run the command in the background (not recommended)
+     */
     function exec( $command, $logfile ){
         if( $this->use_queue ){
             $queue = new Queue();
@@ -938,7 +945,16 @@ class GarminProcess {
         }
         $this->exec( $command, $logfile );
     }
-    
+
+    /**
+     *  run the callback command for a list of file ids. 
+     *  this is called by the main process function to start
+     *  all the callback for the ping received by the service
+     * 
+     *  command_ids are the id from for the table containing the url to callback(typically `file_id` in `fitfiles`)
+     * 
+     *  If the size of the requests are too large it will break it into severacl chunk and execute each on the queue
+     */
     function exec_callback_cmd( $table, $command_ids ){
         if( count($command_ids) > 25 ){
             $chunks = array_chunk( $command_ids, 5 );
@@ -1216,7 +1232,12 @@ class GarminProcess {
         return ( $rv[1] == 70 && $rv[2] == 73 && $rv[3] == 84 );
     }
 
-
+    /**
+     * Check that conditions are met to do extract of the fit file
+     *   1. the file is not too old, Garmin Health sometimes sends very old file triggered by external backfill, 
+     *      to protect against that we check that the file is more recent thant 'ignore_fitextract_hours_threashold'
+     *   2. some user never deregister but don't use the service anymore, so also check if the user is active
+     */
     function should_fit_extract( $file_id ){
         $query = sprintf( 'select file_id,cs_user_id,startTimeInSeconds,fileType FROM fitfiles WHERE file_id = %d', $file_id );
         $should = $this->sql->query_first_row( $query );
