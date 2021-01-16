@@ -150,7 +150,7 @@ class BugReport {
         print implode( ' ', array( $row['systemName'], $row['systemVersion'], $row['platformString'] ) );
         print '</td></tr><tr><td><h4>linked errors</h4></td><td>';
         printf ('<a href="list?commonid=%d">%d reports</a>', $row['commonid'], $other['n'] );
-        printf( '</td></tr><tr><td><h4>File</h4></td><td><a href="%s">%s</a>%s',$fn,$fn, PHP_EOL);
+        printf( '</td></tr><tr><td><h4>File</h4></td><td><a href="export?id=%d&zip">%s</a>%s',$id,$fn, PHP_EOL);
         print '</td></tr></table>';
         $content = '';
         if( file_exists( $fn ) ){
