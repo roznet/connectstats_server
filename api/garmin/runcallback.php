@@ -48,6 +48,6 @@ if( isset( $argv[1] ) ){
     $cbids = $argv;
     $process->run_file_callback( $table, $cbids );
 }
-printf( 'EXIT: Success'.PHP_EOL );
+$process->log( 'EXIT', 'Success' );
 exit();
 ?>

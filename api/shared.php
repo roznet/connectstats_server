@@ -862,7 +862,7 @@ class GarminProcess {
                             if( $callbackURL ) {
                                 // If it has a callback URL, find out the file_id for matching summaryId so we can
                                 // later start a command to get the data from the callback url
-                                $found = $this->sql->query_first_row( sprintf( 'SELECT file_id FROM `%s` WHERE summaryId = %s', $table, $row['summaryId'] ) );
+                                $found = $this->sql->query_first_row( sprintf( "SELECT file_id FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
                                 if( $found ){
                                     array_push( $command_ids, $found['file_id'] );
                                 }
@@ -1820,7 +1820,7 @@ class GarminProcess {
                 $parentrow = $this->sql->query_first_row( $query );
                 if( isset( $parentrow['activity_id'] ) ){
                     $parent_id = $parentrow['activity_id'];
-                    $this->sql->execute_query( sprintf( 'UPDATE activities SET parent_activity_id = %d WHERE summaryId = %d', $parent_id, $row['summaryId'] ) );
+                    $this->sql->execute_query( sprintf( "UPDATE activities SET parent_activity_id = %d WHERE summaryId = '%d'", $parent_id, $row['summaryId'] ) );
                 }
             }
 
@@ -1831,7 +1831,7 @@ class GarminProcess {
                     $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userAccessToken = '%s'",  $startTime, $endTime, $row['userAccessToken'] );
                     $found = $this->sql->query_as_array( $query );
 
-                    $parent_row = $this->sql->query_first_row( sprintf( 'SELECT activity_id FROM `%s` WHERE summaryId = %s', $table, $row['summaryId'] ) );
+                    $parent_row = $this->sql->query_first_row( sprintf( "SELECT activity_id FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
                     if( isset( $parent_row['activity_id'] ) ){
                         foreach( $found as $child_row ){
                             // only check what does not have already parent_activity_id
@@ -2150,7 +2150,7 @@ class GarminProcess {
                 $where = sprintf( "%s AND %s<%s", $where, $key, $key_max );
             }
             
-            $command = sprintf( '%s --defaults-file=%s -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
+            $command = sprintf( '%s --defaults-file=%s --single-transaction=TRUE -t --hex-blob --result-file=%s -u %s %s %s --where "%s%s"', $mysqldump, $defaults, $outfile, $this->api_config['db_username'], $db, $table, $where, $limit );
             if( $this->verbose ){
                 printf( 'Exec %s<br />'.PHP_EOL, $command );
             }
@@ -2230,7 +2230,8 @@ class GarminProcess {
             file_put_contents( $sql_out, $this->get_url_data( $url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'] ) );
 
             $outsize = filesize( $sql_out );
-            if( $outsize > 20 ){
+            # Really should check it output is starts with --INFO and ends with nothing new 
+            if( $outsize > 30 ){
                 $this->log( 'OUT','Got new data for %s (%d bytes)', $table, $outsize );
                 $defaults = sprintf( '%s/.%s.cnf', $tmp_path, $database );
                 file_put_contents( $defaults, sprintf( '[mysql]'.PHP_EOL.'password=%s'.PHP_EOL, $this->api_config['db_password'] ) );
@@ -2283,7 +2284,7 @@ class GarminProcess {
         if( $paging->direct_file_query() ){
             $query = sprintf( "SELECT file_id,path,data FROM assets WHERE %s", $paging->file_where() );
         }else if ($paging->summary_file_query() ){
-            $query = sprintf( "SELECT fitfiles.file_id,data,path FROM fitfiles, assets WHERE fitfiles.asset_id = assets.asset_id AND fitfiles.summaryId = %d", $paging->summary_id );
+            $query = sprintf( "SELECT fitfiles.file_id,data,path FROM fitfiles, assets WHERE fitfiles.asset_id = assets.asset_id AND fitfiles.summaryId = '%d'", $paging->summary_id );
         }else{
             $query = sprintf( "SELECT activity_id,data,path FROM activities, assets WHERE activities.file_id = assets.file_id AND %s %s", $paging->activities_where(), $paging->activities_paging() );
         }
