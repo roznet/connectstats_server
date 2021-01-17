@@ -77,7 +77,7 @@ class BugReport {
 
     function bugreport_line_parse( $txt ){
         $line = NULL;
-        if( preg_match( '/([0-9]+-[0-9]+-[0-9]+ [:.0-9]+) ([:0-9a-f]+) [-EW] (INFO|ERR |WARN):([A-Za-z0-9.+]+):([0-9]+):([-+]\[[^\]]+\])(.*)/', $txt, $matches ) ){
+        if( preg_match( '/([0-9]+-[0-9]+-[0-9]+ [:.0-9]+) ([:0-9a-f]+) [-EW] (INFO|ERR |WARN):([A-Za-z0-9.+]+):([0-9]+):([^;]+); (.*)/', $txt, $matches ) ){
             $line = array(
                 'time' => $matches[1],
                 'pid' => $matches[2],
@@ -88,7 +88,19 @@ class BugReport {
                 'message' => $matches[7],
                 'raw' => $txt
             );
-        };
+        }else if( preg_match( '/([0-9]+-[0-9]+-[0-9]+ [:.0-9]+) ([:0-9a-f]+) [-EW] (INFO|ERR |WARN):([A-Za-z0-9.+]+):([0-9]+):([-+]\[[^\]]+\])(.*)/', $txt, $matches ) ){
+            $line = array(
+                'time' => $matches[1],
+                'pid' => $matches[2],
+                'level' => $matches[3],
+                'filename' => $matches[4],
+                'line' => $matches[5],
+                'method' => $matches[6],
+                'message' => $matches[7],
+                'raw' => $txt
+            );
+        }
+        
         return $line;
     }
     
@@ -106,7 +118,12 @@ class BugReport {
                 $prefix = sprintf( '%s', $line['time'] );
                 $type   = $line['level'];
                 $url = sprintf( 'https://github.com/roznet/connectstats/blob/master/ConnectStats/src/%s#L%s', $line['filename'], $line['line'] );
-                $source = sprintf( '<a href="%s" class="method">%s</a>', $url, $line['method'] );
+                $method = $line['method'];
+                if( strpos( $method, '[' ) === false ){
+                    // objective c method include class, otherwise add file in compact mode
+                    $method = sprintf( '%s.%s', pathinfo($line['filename'], PATHINFO_FILENAME), $method );
+                }
+                $source = sprintf( '<a href="%s" class="method">%s</a>', $url, $method );
                 $class = $this->class_bugreport( $line['raw'] );
                 return sprintf( '<td class="line_prefix">%s</td><td class="%s">%s</td><td class="line_source">%s</td><td class="%s">%s</td>', $prefix, $class, $type, $source, $class, $line['message'] );
             }else{
