@@ -34,9 +34,9 @@
  *   limit: the maximum number of activities to return
  *   activity_id: the first activity_id to base the start of the list
  * OPTIONAL format parameters:
- *   backfill_activities: if set to 1, the output format will match the one of a backfill call from
+ *   activities_garmin_health: if set to 1, the output format will match the one of a backfill call from
  *                   the garmin health api for the API end point `activites`. This can be useful for testing.
- *   backfill_file: if set to 1, the output format will match the one of a backfill call from
+ *   file_garmin_health: if set to 1, the output format will match the one of a backfill call from
  *                   the garmin health api for the API end point `file`. This can be useful for testing.
  *   
  */
@@ -52,10 +52,10 @@ if( isset( $_GET['token_id'] ) ){
 
     $paging = new Paging( $_GET, $token_id, $process->sql );
 
-    if( isset( $_GET['backfill_activities'] ) && $_GET['backfill_activities'] == 1 ){
-        $process->query_backfill_activities( $paging );
-    }else if( isset( $_GET['backfill_file'] ) && $_GET['backfill_file'] == 1 ){
-        $process->query_backfill_file( $paging );
+    if( isset( $_GET['activities_garmin_health'] ) && $_Get['activities_garmin_health'] == 1 ){
+        $process->query_activities_garmin_health_format( $paging );
+    }else if( isset( $_GET['file_garmin_health'] ) && $_GET['file_garmin_health'] == 1 ){
+        $process->query_file_garmin_health_format( $paging );
     }else{
         $process->query_activities( $paging );
     }

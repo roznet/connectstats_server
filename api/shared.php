@@ -2410,7 +2410,7 @@ class GarminProcess {
      * NOTE that this is sorted by time stamp, to simulate the order they were sent
      *      by the garmin service
      */
-    function query_backfill_activities( $paging ){
+    function query_activities_garmin_health_format( $paging ){
 
         $query = sprintf( 'SELECT activity_id,json,userId,userAccessToken FROM activities WHERE %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
         
@@ -2427,7 +2427,7 @@ class GarminProcess {
         print( json_encode( array( 'activities' => $rv ) ) );
     }
 
-    function query_backfill_file( $paging ){
+    function query_file_garmin_health_format( $paging ){
 
         $query = sprintf( 'SELECT activity_id,file_id,userId,userAccessToken,startTimeInSeconds FROM activities WHERE NOT ISNULL(file_id) AND %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
         
