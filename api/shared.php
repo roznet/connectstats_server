@@ -2506,6 +2506,131 @@ class GarminProcess {
             }
         }
     }
+
+
+    function notification_create_table(){
+        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED INDEX notifications_devices_cs_user_id, enabled INT, authorized INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $this->sql->execute_query( $query );
+    }
+    
+    function notification_register($token_id, $getparams){
+        
+        $user = $this->user_info_for_token_id($token_id);
+        $rv = $user;
+        unset( $rv['userAccessTokenSecret'] );
+
+        $device_token = "";
+        $enabled = 0;
+        $authorized = 0;
+        if( isset( $getparams['notification_device_token'] ) ){
+            $device_token = $this->validate_token( $getparams['notification_device_token'] );
+        }
+        if( isset( $getparams['notification_enabled'] ) ){
+            $enabled = intval( $getparams['notification_enabled'] );
+        }
+        if( isset( $getparams['notification_authorized'] ) ){
+            $authorized = intval( $getparams['notification_authorized'] );
+        }
+        if( strlen( $device_token ) == 0 ){
+            $notification_enabled = 0;
+        }
+
+        $row = array( 'cs_user_id' => $this->validate_input_id( $user['cs_user_id'] ) );
+        
+        $row['device_token'] = $device_token;
+        $row['authorized'] = $authorized;
+        $row['enabled'] = $enabled;
+        
+        $this->sql->insert_or_update( 'notifications_devices', $row, array( 'device_token' ) );
+        return( $row );
+    }
+
+    function notification_push_to_user($cs_user_id, $json_msg ){
+        $query = sprintf( 'SELECT device_token,enabled FROM notifications_devices WHERE cs_user_id = %d', $cs_user_id);
+        $found = $this->sql->query_as_array( $query );
+        foreach( $found as $row ){
+            if( intval($row['enabled']) == 1 ){
+                $this->notification_push_to_device( $row['device_token'], $json_msg );
+            }
+        }
+    }
+    
+    function notification_push_to_device($device_token, $json_msg)
+    {
+        foreach( array('apn_keyfile', 'apn_keyid', 'apn_teamid', 'apn_bundleid', 'apn_url' ) as $key ){
+            if( ! isset( $this->api_config[$key] ) ){
+                if( $this->verbose ){
+                    $this->log( "INFO", "Missing apn key %s, skipping push notification", $key );
+                    return false;
+                }
+            }
+        }
+        
+        $keyfile = $this->api_config['apn_keyfile'];
+        $keyid = $this->api_config['apn_keyid'];
+        $teamid = $this->api_config['apn_teamid'];
+        $bundleid = $this->api_config['apn_bundleid'];
+        $url = $this->api_config['apn_url'];
+        $token = $device_token;
+
+        $message = $json_msg;
+
+        $key = openssl_pkey_get_private('file://' . $keyfile);
+
+        $header = ['alg' => 'ES256', 'kid' => $keyid];
+        $claims = ['iss' => $teamid, 'iat' => time()];
+
+        $header_encoded = $this->base64($header);
+        $claims_encoded = $this->base64($claims);
+
+        $signature = '';
+        openssl_sign($header_encoded . '.' . $claims_encoded, $signature, $key, 'sha256');
+        $jwt = $header_encoded . '.' . $claims_encoded . '.' . base64_encode($signature);
+
+        // only needed for PHP prior to 5.5.24
+        if (!defined('CURL_HTTP_VERSION_2_0')) {
+            define('CURL_HTTP_VERSION_2_0', 3);
+        }
+
+        $http2ch = curl_init();
+        curl_setopt_array($http2ch, array(
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
+            CURLOPT_URL => "$url/3/device/$token",
+            CURLOPT_PORT => 443,
+            CURLOPT_HTTPHEADER => array(
+                "apns-topic: {$bundleid}",
+                "authorization: bearer $jwt"
+            ),
+            CURLOPT_POST => TRUE,
+            CURLOPT_POSTFIELDS => $message,
+            CURLOPT_RETURNTRANSFER => TRUE,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_HEADER => 1
+        ));
+
+        $result = curl_exec($http2ch);
+        if ($result === FALSE) {
+            $this->log( 'ERROR', "Curl failed: %s", curl_error($http2ch));
+            return false;
+        }
+
+        $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
+        if( $status == 200 ){
+            if( $this->verbose ){
+                $this->log( 'INFO', 'Successfully send notification on %s to %s', $url, $device_token );
+            }
+            return true;
+        }else{
+            if( $this->verbose ){
+                $this->log( 'WARNING', 'Failed to send notification with status %d on %s to %s', $status, $url, $device_token );
+            }
+        }
+    }
+    
+    function base64($data) {
+          return rtrim(strtr(base64_encode(json_encode($data)), '+/', '-_'), '=');
+    }
+
 };
     
 ?>

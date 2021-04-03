@@ -492,7 +492,7 @@ class sql_helper {
 				foreach( $db_row as $key => $val ){
 					if( isset( $row[ $key ] ) && $row[ $key ] != $val ){
 						$needs_update = true;
-					}
+                    }
 				}
 			}
 		}else{
