@@ -2509,7 +2509,9 @@ class GarminProcess {
 
 
     function notification_create_table(){
-        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED INDEX notifications_devices_cs_user_id, enabled INT, authorized INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, INDEX (cs_user_id), enabled INT, authorized INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $this->sql->execute_query( $query );
+        $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
         $this->sql->execute_query( $query );
     }
     
@@ -2550,12 +2552,12 @@ class GarminProcess {
         $found = $this->sql->query_as_array( $query );
         foreach( $found as $row ){
             if( intval($row['enabled']) == 1 ){
-                $this->notification_push_to_device( $row['device_token'], $json_msg );
+                $this->notification_push_to_device( $row['device_token'], $json_msg, $cs_user_id );
             }
         }
     }
     
-    function notification_push_to_device($device_token, $message)
+    function notification_push_to_device($device_token, $message, $cs_user_id)
     {
         foreach( array('apn_keyfile', 'apn_keyid', 'apn_teamid', 'apn_bundleid', 'apn_url' ) as $key ){
             if( ! isset( $this->api_config[$key] ) ){
@@ -2624,6 +2626,15 @@ class GarminProcess {
         $response_header = substr( $result, 0, $header_size );
         $response_body = substr( $result, $header_size );
         $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
+        $response_header_lines = explode( PHP_EOL, $response_header );
+        $response_headers = [];
+        foreach( $response_header_lines as $line ){
+            $split_line = explode( ':', $line, 2);
+            if( count($split_line) == 2 ){
+                $response_headers[ strtolower(trim($split_line[0])) ] = trim( $split_line[1] );
+            }
+        }
+        $this->sql->insert_or_update( 'notifications', [ 'device_token' => $device_token, 'cs_user_id' => $cs_user_id, 'status' => $status, 'apnsid' => $response_headers['apns-id'] ] );
         if( $status == 200 ){
             if( $this->verbose ){
                 $this->log( 'INFO', 'Successfully send notification on %s to %s', $url, $device_token );
