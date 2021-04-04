@@ -2555,7 +2555,7 @@ class GarminProcess {
         }
     }
     
-    function notification_push_to_device($device_token, $json_msg)
+    function notification_push_to_device($device_token, $message)
     {
         foreach( array('apn_keyfile', 'apn_keyid', 'apn_teamid', 'apn_bundleid', 'apn_url' ) as $key ){
             if( ! isset( $this->api_config[$key] ) ){
@@ -2573,7 +2573,7 @@ class GarminProcess {
         $url = $this->api_config['apn_url'];
         $token = $device_token;
 
-        $message = $json_msg;
+        $json_message = json_encode($message);
 
         $key = openssl_pkey_get_private('file://' . $keyfile);
 
@@ -2591,18 +2591,25 @@ class GarminProcess {
         if (!defined('CURL_HTTP_VERSION_2_0')) {
             define('CURL_HTTP_VERSION_2_0', 3);
         }
-
+        $headers = array(
+                "apns-topic: {$bundleid}",
+                "authorization: bearer $jwt"
+        );
+        if( isset( $message['aps']['content-available'] ) ){
+            $headers['apns-priority'] = 5;
+            $headers['apns-push-type'] = 'background';
+        }else{
+            $headers['apns-priority'] = 10;
+            $headers['apns-push-type'] = 'alert';
+        }
         $http2ch = curl_init();
         curl_setopt_array($http2ch, array(
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_2_0,
             CURLOPT_URL => "$url/3/device/$token",
             CURLOPT_PORT => 443,
-            CURLOPT_HTTPHEADER => array(
-                "apns-topic: {$bundleid}",
-                "authorization: bearer $jwt"
-            ),
+            CURLOPT_HTTPHEADER => $headers,
             CURLOPT_POST => TRUE,
-            CURLOPT_POSTFIELDS => $message,
+            CURLOPT_POSTFIELDS => $json_message,
             CURLOPT_RETURNTRANSFER => TRUE,
             CURLOPT_TIMEOUT => 30,
             CURLOPT_HEADER => 1
@@ -2613,7 +2620,9 @@ class GarminProcess {
             $this->log( 'ERROR', "Curl failed: %s", curl_error($http2ch));
             return false;
         }
-
+        $header_size = curl_getinfo( $http2ch, CURLINFO_HEADER_SIZE );
+        $response_header = substr( $result, 0, $header_size );
+        $response_body = substr( $result, $header_size );
         $status = curl_getinfo($http2ch, CURLINFO_HTTP_CODE);
         if( $status == 200 ){
             if( $this->verbose ){
@@ -2622,7 +2631,7 @@ class GarminProcess {
             return true;
         }else{
             if( $this->verbose ){
-                $this->log( 'WARNING', 'Failed to send notification with status %d on %s to %s', $status, $url, $device_token );
+                $this->log( 'WARNING', 'Failed to send notification to %s with status %d and info %s (using %s)', $device_token, $status, $response_body, $url );
             }
         }
     }
