@@ -44,9 +44,7 @@ if( isset( $argv[1] ) ){
     if( $process->verbose ){
         $process->log('INFO','pushing notification for user %d', $user );
     }
-    $msg = [ "aps" => [  "alert" => "Hi There!" ] ];
-    #$msg = [ "aps" => [ "content-available" => 1 ] ];
-    $rv = $process->notification_push_to_user( $user, $msg );
+    $rv = $process->notification_push_to_user( $user );
 }
 
 ?>

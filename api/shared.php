@@ -2509,7 +2509,7 @@ class GarminProcess {
 
 
     function notification_create_table(){
-        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, INDEX (cs_user_id), enabled INT, authorized INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, INDEX (cs_user_id), enabled INT, push_type INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
         $this->sql->execute_query( $query );
         $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
         $this->sql->execute_query( $query );
@@ -2523,15 +2523,15 @@ class GarminProcess {
 
         $device_token = "";
         $enabled = 0;
-        $authorized = 0;
+        $push_type = 0;
         if( isset( $getparams['notification_device_token'] ) ){
             $device_token = $this->validate_token( $getparams['notification_device_token'] );
         }
         if( isset( $getparams['notification_enabled'] ) ){
             $enabled = intval( $getparams['notification_enabled'] );
         }
-        if( isset( $getparams['notification_authorized'] ) ){
-            $authorized = intval( $getparams['notification_authorized'] );
+        if( isset( $getparams['notification_push_type'] ) ){
+            $push_type = intval( $getparams['notification_push_type'] );
         }
         if( strlen( $device_token ) == 0 ){
             $notification_enabled = 0;
@@ -2540,19 +2540,32 @@ class GarminProcess {
         $row = array( 'cs_user_id' => $this->validate_input_id( $user['cs_user_id'] ) );
         
         $row['device_token'] = $device_token;
-        $row['authorized'] = $authorized;
+        $row['push_type'] = $push_type;
         $row['enabled'] = $enabled;
         
         $this->sql->insert_or_update( 'notifications_devices', $row, array( 'device_token' ) );
         return( $row );
     }
 
-    function notification_push_to_user($cs_user_id, $json_msg ){
-        $query = sprintf( 'SELECT device_token,enabled FROM notifications_devices WHERE cs_user_id = %d', $cs_user_id);
+    function notification_push_to_user($cs_user_id ){
+        $query = sprintf( 'SELECT device_token,enabled,push_type FROM notifications_devices WHERE cs_user_id = %d', $cs_user_id);
         $found = $this->sql->query_as_array( $query );
         foreach( $found as $row ){
-            if( intval($row['enabled']) == 1 ){
-                $this->notification_push_to_device( $row['device_token'], $json_msg, $cs_user_id );
+            $push_type = intval($row['push_type']);
+            if( intval($row['enabled']) == 1 && $push_type>0){
+                $msg = NULL;
+                if( $push_type == 1){
+                    $msg = [ "aps" => [ "content-available" => 1 ] ];
+                }else if( $push_type == 2){
+                    $msg = [ "aps" => [  "alert" => "New Activity Available!" ] ];
+                }
+                if( $msg ){
+                    $this->notification_push_to_device( $row['device_token'], $msg, $cs_user_id );
+                }else{
+                    $this->log( 'INFO', 'Skipping unknown push_type for device %s for user %s', $row['device_token'], $cs_user_id );
+                }
+            }else{
+                $this->log( 'INFO', 'Skipping disabled device %s for user %s', $row['device_token'], $cs_user_id );
             }
         }
     }
