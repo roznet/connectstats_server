@@ -2539,7 +2539,7 @@ class GarminProcess {
         $this->sql->execute_query( $query );
         $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
         $this->sql->execute_query( $query );
-        $query = "CREATE TABLE notifications_activities (activity_id UNSIGNED BIGINT(20) PRIMARY KEY,  notification_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $query = "CREATE TABLE notifications_activities (activity_id BIGINT(20) UNSIGNED PRIMARY KEY,  notification_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
         $this->sql->execute_query( $query );
     }
     
