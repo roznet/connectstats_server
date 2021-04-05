@@ -40,8 +40,14 @@ $process->set_verbose(true);
 
 $process->ensure_commandline($argv??NULL);
 if( isset( $argv[1] ) ){
-    $activity_id = intval($argv[1]);
-    $process->notification_push_for_activity( $activity_id );
+    array_shift( $argv ); // get rid of 0
+
+    $table = array_shift( $argv );
+
+    foreach( $argv as $one ){
+        $activity_id = intval($one);
+        $process->notification_push_for_activity( $one );
+    }
 }
 
 ?>

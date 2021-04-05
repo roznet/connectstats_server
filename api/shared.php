@@ -808,6 +808,7 @@ class GarminProcess {
             }
             if( $this->status->success() ){
                 $command_ids = array();
+                $notification_ids = array();
                 foreach( $data as $summary_type => $activities){
                     foreach( $activities as $activity){
                         $row = array();
@@ -861,6 +862,7 @@ class GarminProcess {
                                 $cache_map_key = NULL;
                                 if( $table == 'activities' ){
                                     $cache_map_key = 'activity_id';
+                                    array_push( $notification_ids, $table_insertid );
                                 }else if( $table == 'fitfiles' ){
                                     $cache_map_key = 'file_id';
                                 }
@@ -890,6 +892,9 @@ class GarminProcess {
                     }
                     if( $command_ids ){
                         $this->exec_callback_cmd( $table, $command_ids );
+                    }
+                    if( $notification_ids ){
+                        $this->exec_notification_cmd( $table, $notification_ids );
                     }
                 }
             }
@@ -971,7 +976,7 @@ class GarminProcess {
      * 
      *  If the size of the requests are too large it will break it into severacl chunk and execute each on the queue
      */
-    function exec_callback_cmd( $table, $command_ids ){
+    function exec_callback_cmd( $table, $command_ids, $cmd = 'php runcallback.php %s %s' ){
         if( count($command_ids) > 25 ){
             $chunks = array_chunk( $command_ids, 5 );
         }else{
@@ -980,7 +985,7 @@ class GarminProcess {
         foreach( $chunks as $chunk ){
             $file_ids = implode( ' ', $chunk );
 
-            $command = sprintf( 'php runcallback.php %s %s', $table, $file_ids );
+            $command = sprintf( $cmd, $table, $file_ids );
             if( is_writable( 'log' ) ){
                 $logfile = str_replace( ' ', '_', sprintf( 'log/callback-%s-%s-%s', $table, substr($file_ids,0,10),substr( hash('sha1', $command ), 0, 8 ) ) );
             }else{
@@ -992,7 +997,10 @@ class GarminProcess {
             $this->exec( $command, $logfile );
         }
     }
-    
+
+    function exec_notification_cmd( $table, $notification_ids ){
+        $this->exec_callback_cmd( $table, $notification_ids, 'php ../notifications/activity.php %s %s' );
+    }
     function authorization_header_for_token_id( $full_url, $token_id ){
         $row = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
         return $this->authorization_header( $full_url, $row['userAccessToken'], $row['userAccessTokenSecret'] );
