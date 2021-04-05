@@ -12,6 +12,7 @@ class sql_helper {
 	
 	var $readOnly = 0;	
 	var $verbose = false;
+    var $debug = false;
 	
 	var $fieldsInfo = NULL;
 	var $tableInfo = NULL;
@@ -321,6 +322,14 @@ class sql_helper {
         $fmt = array_shift( $args );
 
         $msg = vsprintf( $fmt, $args );
+        if( $this->debug ){
+            $bt = debug_backtrace();
+            foreach( $bt as $frame ){
+                #if( isset( $frame['class'] ) && $frame['class'] != 'sql_helper' ){
+                printf( '  %s[%s] %s.%s'.PHP_EOL, basename($frame['file']), $frame['line'], $frame['class'], $frame['function'] );
+                #}
+            }
+        }
         
         printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
     }

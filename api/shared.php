@@ -343,6 +343,8 @@ class Paging {
 }
 
 class GarminProcess {
+    var $debug = false;
+    
     function __construct() {
         $this->use_queue = true;
         $this->start_ts = microtime(true);
@@ -355,8 +357,16 @@ class GarminProcess {
         if( isset($_GET['verbose']) && $_GET['verbose']==1){
             $this->set_verbose( true );
         }
-        if( isset($_ENV['ROZNET_VERBOSE']) && intval($_ENV['ROZNET_VERBOSE'])==1){
+        if( isset( $_GET['debug']) && $_GET['debug'] == 1){
+            $this->debug = true;
+            $this->sql->debug = true;
+        }
+        if( intval(getenv('ROZNET_VERBOSE'))==1){
             $this->set_verbose( true );
+        }
+        if( intval(getenv('ROZNET_DEBUG'))==1){
+            $this->debug = true;
+            $this->sql->debug = true;
         }
 
         include( 'config.php' );
@@ -380,7 +390,13 @@ class GarminProcess {
         $fmt = array_shift( $args );
 
         $msg = vsprintf( $fmt, $args );
-        
+        if( $this->debug ){
+            $bt = debug_backtrace(false);
+            foreach( $bt as $frame ){
+                printf( '  %s[%s] %s.%s'.PHP_EOL, $frame['file'], $frame['line'], $frame['class'] ?? '', $frame['function'] );
+            }
+        }
+            
         printf( "%s:%.3f: %s".PHP_EOL, $tag, microtime(true)-$this->start_ts, $msg );
     }
     
@@ -1877,7 +1893,9 @@ class GarminProcess {
         $cs_user_id = NULL;
         if( isset( $row['summaryId'] )){
             $fullrow = $this->sql->query_first_row( sprintf( "SELECT * FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
-
+            if( $fullrow['cs_user_id'] ){
+                $cs_user_id = $fullrow['cs_user_id'];
+            }
             if( !$fullrow['cs_user_id'] && isset( $row['userAccessToken'] ) && isset( $row['userId'] ) ){
             
                 $userInfo = $this->user_info($row['userAccessToken']);
@@ -1900,7 +1918,7 @@ class GarminProcess {
                     array_push( $to_set, sprintf( 'cs_user_id = %d', $cs_user_id ) );
                 }
             }
-
+            $this->log( 'INFO', 'got user %d', $cs_user_id );
             //
             //
             // Link activities / fitfiles on userId, startTimeInSeconds
@@ -2513,6 +2531,8 @@ class GarminProcess {
         $this->sql->execute_query( $query );
         $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
         $this->sql->execute_query( $query );
+        $query = "CREATE TABLE notifications_activities (activity_id UNSIGNED BIGINT(20) PRIMARY KEY,  notification_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+        $this->sql->execute_query( $query );
     }
     
     function notification_register($token_id, $getparams){
@@ -2547,9 +2567,45 @@ class GarminProcess {
         return( $row );
     }
 
+    /**
+     *   Will push notification for activity_id if necessary
+     */
+    function notification_push_for_activity( $activity_id ){
+        $query = sprintf( 'SELECT activity_id, notification_id FROM notifications_activities WHERE activity_id = %d', $activity_id );
+        $check = $this->sql->query_first_row( $query );
+        if( isset( $check['notification_id'] ) ){
+            $this->log( 'INFO', 'notification for activity_id %d was already sent as notification_id = %d', $activity_id, intval( $check['notification_id'] ) );
+            return;
+        }
+        $this->log( 'INFO', 'Checking required notification for activity_id = %d', $activity_id );
+
+        $query = sprintf( 'SELECT activity_id,cs_user_id FROM activities WHERE activity_id = %d', $activity_id );
+        $check = $this->sql->query_first_row( $query );
+        if( !isset( $check['cs_user_id' ] ) || intval( $check['cs_user_id'] ) == 0 ){
+            $this->log( 'INFO', 'Skipping notification, no cs_user_id for activity_id %d', $activity_id );
+            return;
+        }
+        $cs_user_id = intval( $check['cs_user_id'] );
+
+        if( $this->user_is_active( $cs_user_id ) ){
+            $notification_id = $this->notification_push_to_user($cs_user_id );
+            if( $notification_id > 0 ){
+                $this->sql->insert_or_update( 'notifications_activities', [ 'activity_id' => $activity_id, 'notification_id' => $notification_id ], [ 'activity_id'] );
+            }else{
+                $this->log( 'INFO', 'No valid notification for cs_user_id %s and activity_id %d', $cs_user_id, $activity_id );
+            }
+        }else{
+            $this->log( 'INFO', 'Skipping notification, cs_user_id %s inactive for activity_id %d', $cs_user_id, $activity_id );
+        }
+    }
+    /**
+     *   Will push notification to all the registered and enabled devices for user_id
+     *   Will return one of the notification_id if at least one was successful
+     */
     function notification_push_to_user($cs_user_id ){
         $query = sprintf( 'SELECT device_token,enabled,push_type FROM notifications_devices WHERE cs_user_id = %d', $cs_user_id);
         $found = $this->sql->query_as_array( $query );
+        $sample_notification_id = false;
         foreach( $found as $row ){
             $push_type = intval($row['push_type']);
             if( intval($row['enabled']) == 1 && $push_type>0){
@@ -2560,7 +2616,10 @@ class GarminProcess {
                     $msg = [ "aps" => [  "alert" => "New Activity Available!" ] ];
                 }
                 if( $msg ){
-                    $this->notification_push_to_device( $row['device_token'], $msg, $cs_user_id );
+                    $one = $this->notification_push_to_device( $row['device_token'], $msg, $cs_user_id );
+                    if( intval($one) > 0 ){
+                        $sample_notification_id = intval($one);
+                    }
                 }else{
                     $this->log( 'INFO', 'Skipping unknown push_type for device %s for user %s', $row['device_token'], $cs_user_id );
                 }
@@ -2568,8 +2627,13 @@ class GarminProcess {
                 $this->log( 'INFO', 'Skipping disabled device %s for user %s', $row['device_token'], $cs_user_id );
             }
         }
+        return $sample_notification_id;
     }
-    
+
+    /**
+     *   Push a notification to a device_token if config is properly configured. 
+     *   Return notification_id if successfull
+     */
     function notification_push_to_device($device_token, $message, $cs_user_id)
     {
         foreach( array('apn_keyfile', 'apn_keyid', 'apn_teamid', 'apn_bundleid', 'apn_url' ) as $key ){
@@ -2648,16 +2712,18 @@ class GarminProcess {
             }
         }
         $this->sql->insert_or_update( 'notifications', [ 'device_token' => $device_token, 'cs_user_id' => $cs_user_id, 'status' => $status, 'apnsid' => $response_headers['apns-id'] ] );
+        $notification_id = $this->sql->insert_id();
         if( $status == 200 ){
             if( $this->verbose ){
                 $this->log( 'INFO', 'Successfully send notification on %s to %s', $url, $device_token );
             }
-            return true;
         }else{
             if( $this->verbose ){
                 $this->log( 'WARNING', 'Failed to send notification to %s with status %d and info %s (using %s)', $device_token, $status, $response_body, $url );
             }
+            $notification_id = false;
         }
+        return $notification_id;
     }
     
     function base64($data) {
