@@ -2702,6 +2702,11 @@ class GarminProcess {
             CURLOPT_HEADER => 1
         ));
 
+        if( $this->verbose ){
+            $this->log( 'INFO', 'apns-priority: %s', $headers['apns-priority'] );
+            $this->log( 'INFO', 'apns-push-type: %s', $headers['apns-push-type'] );
+            $this->log( 'INFO', 'Payload %s', $json_message );
+        }
         $result = curl_exec($http2ch);
         if ($result === FALSE) {
             $this->log( 'ERROR', "Curl failed: %s", curl_error($http2ch));
@@ -2719,6 +2724,8 @@ class GarminProcess {
                 $response_headers[ strtolower(trim($split_line[0])) ] = trim( $split_line[1] );
             }
         }
+        $this->log( 'INFO', 'apns response status: %s ', $status );
+        $this->log( 'INFO', 'apns response header: %s ', json_encode($response_headers) );
         $this->sql->insert_or_update( 'notifications', [ 'device_token' => $device_token, 'cs_user_id' => $cs_user_id, 'status' => $status, 'apnsid' => $response_headers['apns-id'] ] );
         $notification_id = $this->sql->insert_id();
         if( $status == 200 ){
