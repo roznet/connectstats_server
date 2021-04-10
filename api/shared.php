@@ -2596,7 +2596,7 @@ class GarminProcess {
         $cs_user_id = intval( $check['cs_user_id'] );
 
         if( $this->user_is_active( $cs_user_id ) ){
-            $notification_id = $this->notification_push_to_user($cs_user_id );
+            $notification_id = $this->notification_push_to_user($cs_user_id, $activity_id );
             if( $notification_id > 0 ){
                 $this->sql->insert_or_update( 'notifications_activities', [ 'activity_id' => $activity_id, 'notification_id' => $notification_id ], [ 'activity_id'] );
             }else{
@@ -2610,7 +2610,7 @@ class GarminProcess {
      *   Will push notification to all the registered and enabled devices for user_id
      *   Will return one of the notification_id if at least one was successful
      */
-    function notification_push_to_user($cs_user_id ){
+    function notification_push_to_user($cs_user_id, $activity_id = NULL){
         $query = sprintf( 'SELECT device_token,enabled,push_type FROM notifications_devices WHERE cs_user_id = %d', $cs_user_id);
         $found = $this->sql->query_as_array( $query );
         $sample_notification_id = false;
@@ -2619,10 +2619,15 @@ class GarminProcess {
             if( intval($row['enabled']) == 1 && $push_type>0){
                 $msg = NULL;
                 if( $push_type == 1){
-                    $msg = [ "aps" => [ "content-available" => 1 ] ];
+                    $msg = [ "aps" => [ "content-available" => 1, "alert" => "New Activity Available!", "badge" => 1 ] ];
                 }else if( $push_type == 2){
-                    $msg = [ "aps" => [  "alert" => "New Activity Available!" ] ];
+                    $msg = [ "aps" => [  "alert" => "New Activity Available!", "badge" => 1 ] ];
                 }
+                if( intval($activity_id) > 0 ){
+                    $msg['activity_id'] = $activity_id;
+                }
+                $msg['cs_user_id'] = $cs_user_id;
+                
                 if( $msg ){
                     $one = $this->notification_push_to_device( $row['device_token'], $msg, $cs_user_id );
                     if( intval($one) > 0 ){
@@ -2682,12 +2687,12 @@ class GarminProcess {
                 "apns-topic: {$bundleid}",
                 "authorization: bearer $jwt"
         );
-        if( isset( $message['aps']['content-available'] ) ){
-            $headers['apns-priority'] = 5;
-            $headers['apns-push-type'] = 'background';
-        }else{
+        if( isset( $message['aps']['alert'] ) ){
             $headers['apns-priority'] = 10;
             $headers['apns-push-type'] = 'alert';
+        }else{
+            $headers['apns-priority'] = 5;
+            $headers['apns-push-type'] = 'background';
         }
         $http2ch = curl_init();
         curl_setopt_array($http2ch, array(
