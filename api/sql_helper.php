@@ -437,7 +437,11 @@ class sql_helper {
                                   $table,
                                   $this->fields_equal_values( $table, $row ), 
                                   $this->fields_equal_values( $table, $row, $id_array, " AND " ) );
-			};
+			}else{
+                if( $this->verbose ){
+                    $this->log( 'SKIP', 'row unchanged, skipping UPDATE `%s` WHERE %s',  $table, $this->fields_equal_values( $table, $row, $id_array, " AND " ) );
+                }
+            }
 		}else{
 			$split = $this->fields_and_values( $table, $row );
 			$query = sprintf( 'INSERT INTO `%s` (%s) VALUES (%s);', $table, $split[ 'fields' ], $split[ 'values' ] );			

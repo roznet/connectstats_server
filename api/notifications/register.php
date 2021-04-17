@@ -4,6 +4,7 @@ include_once('../shared.php' );
 
 $process = new GarminProcess();
 
+
 if( isset( $_GET['token_id'] ) ){
     $token_id = intval($_GET['token_id']);
 

@@ -874,6 +874,7 @@ class GarminProcess {
                                 }
                             }
                         }
+                       
 
                         // If callback, record ids that will need to be process in new command
                         if( $this->status->success() ){
@@ -999,7 +1000,14 @@ class GarminProcess {
     }
 
     function exec_notification_cmd( $table, $notification_ids ){
-        $this->exec_callback_cmd( $table, $notification_ids, 'php ../notifications/activity.php %s %s' );
+        # if apn url defined, send notifictaion
+        if( isset( $this->api_config['apn_url'] ) ){
+            $this->exec_callback_cmd( $table, $notification_ids, 'php ../notifications/activity.php %s %s' );
+        }else{
+            if( $this->verbose ) {
+                $this->log( 'INFO', 'Notification not setup, skipping' );
+            }
+        }
     }
     function authorization_header_for_token_id( $full_url, $token_id ){
         $row = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
@@ -1926,7 +1934,7 @@ class GarminProcess {
                     array_push( $to_set, sprintf( 'cs_user_id = %d', $cs_user_id ) );
                 }
             }
-            $this->log( 'INFO', 'got user %d', $cs_user_id );
+
             //
             //
             // Link activities / fitfiles on userId, startTimeInSeconds
@@ -1941,21 +1949,39 @@ class GarminProcess {
             }else{
                 $other_table = NULL;
             }
-            
+
+            // If we have userId and startTimeInSeconds, check if we find a row for the same in the other table
             if( $other_table && (isset( $row['userId'] ) && isset( $row['startTimeInSeconds' ] ) ) ){
                 $query = sprintf( "SELECT * FROM `%s` WHERE userId = '%s' AND startTimeInSeconds = %d", $other_table, $row['userId'], $row['startTimeInSeconds'] );
                 $found = $this->sql->query_as_array( $query );
 
+                // If we found 1, that means we should link them
                 if( count( $found ) == 1 ){
                     $found = $found[0];
+                    if( $this->verbose ){
+                        $this->log( 'INFO', 'Found link between for %s.%s=%s and %s.%s=%s', $table, $table_key, $fullrow[$table_key], $other_table, $other_key, $found[$other_key] );
+                    }
+                    $nothing_to_do = 1;
+                    // check if the other table is missing the link to this one, 
                     if( ! $found[$table_key] ){
                         if( $fullrow[$table_key] ){
+                            $nothing_to_do = 0;
                             $query = sprintf( 'UPDATE `%s` SET %s = %d WHERE %s = %d', $other_table, $table_key, $fullrow[$table_key], $other_key, $found[$other_key] );
                             $this->sql->execute_query( $query );
                         }
                     }
+                    // check if the table is missing the link to other, 
                     if( ! $fullrow[$other_key] ){
+                        $nothing_to_do = 0;
                         array_push( $to_set, sprintf( '%s = %d', $other_key, $found[$other_key] ) );
+                    }
+
+                    if( $nothing_to_do && $this->verbose ){
+                        $this->log( 'INFO', 'Links already done for %s.%s=%s and %s.%s=%s', $table, $table_key, $fullrow[$table_key], $other_table, $other_key, $found[$other_key] );
+                    }
+                }else{
+                    if( $this->verbose ){
+                        $this->log( 'INFO', 'Nothing found to link for %s.%s=%s in %s', $table, $table_key, $fullrow[$table_key], $other_table );
                     }
                 }
             }
