@@ -2560,29 +2560,29 @@ class GarminProcess {
     }
 
 
-    function notification_create_table(){
-        $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, INDEX (cs_user_id), enabled INT, push_type INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
-        $this->sql->execute_query( $query );
-        $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
-        $this->sql->execute_query( $query );
-        $query = "CREATE TABLE notifications_activities (activity_id BIGINT(20) UNSIGNED PRIMARY KEY,  notification_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
-        $this->sql->execute_query( $query );
+    function create_notification_table(){
+        if( ! $this->sql->table_exists( 'notifications' ) ){
+            $query = "CREATE TABLE notifications_devices (device_token VARCHAR(128) PRIMARY KEY, cs_user_id BIGINT(20) UNSIGNED, INDEX (cs_user_id), enabled INT, push_type INT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+            $this->sql->execute_query( $query );
+            $query = "CREATE TABLE notifications (notification_id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY, device_token VARCHAR(128), cs_user_id BIGINT(20) UNSIGNED, status INT, apnid VARCHAR(128), ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP, received_ts TIMESTAMP)";
+            $this->sql->execute_query( $query );
+            $query = "CREATE TABLE notifications_activities (activity_id BIGINT(20) UNSIGNED PRIMARY KEY,  notification_id BIGINT(20) UNSIGNED, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, create_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP)";
+            $this->sql->execute_query( $query );
+        }
     }
     
-    function notification_register($token_id, $getparams){
-        
-        $user = $this->user_info_for_token_id($token_id);
-        $rv = $user;
-        unset( $rv['userAccessTokenSecret'] );
-
+    function notification_register($cs_user_id, $getparams){
         $device_token = "";
         $enabled = 0;
         $push_type = 0;
-        if( isset( $getparams['notification_device_token'] ) ){
-            $device_token = $this->validate_token( $getparams['notification_device_token'] );
-        }
         if( isset( $getparams['notification_enabled'] ) ){
             $enabled = intval( $getparams['notification_enabled'] );
+        }else{
+            // if notification_enabled key is not there, don't bother with the rest
+            return;
+        }
+        if( isset( $getparams['notification_device_token'] ) ){
+            $device_token = $this->validate_token( $getparams['notification_device_token'] );
         }
         if( isset( $getparams['notification_push_type'] ) ){
             $push_type = intval( $getparams['notification_push_type'] );
@@ -2591,7 +2591,7 @@ class GarminProcess {
             $notification_enabled = 0;
         }
 
-        $row = array( 'cs_user_id' => $this->validate_input_id( $user['cs_user_id'] ) );
+        $row = array( 'cs_user_id' => $this->validate_input_id( $cs_user_id ) );
         
         $row['device_token'] = $device_token;
         $row['push_type'] = $push_type;

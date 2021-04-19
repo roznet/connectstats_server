@@ -7,4 +7,5 @@ $process->set_verbose( true );
 
 $process->ensure_schema();
 
+$process->create_notification_table();
 ?>
