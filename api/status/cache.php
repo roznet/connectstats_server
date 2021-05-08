@@ -157,7 +157,7 @@ class CacheCheck {
         $this->run_test( 'slow_cache_fitfiles',   sprintf( 'SELECT cache_id,started_ts,processed_ts FROM cache_fitfiles ORDER BY cache_id DESC  LIMIT %d', $this->n), 'check_process_time' );
 
         $this->rv['status'] = $this->status;
-        $this->rv['checked'] = ['total_checked'=>$this->n, 'max_time' => $this->max_seconds];
+        $this->rv['checked'] = ['total_checked'=>$this->n, 'max_time' => $this->max_seconds, 'threshold' => date( 'Y-m-d H:i:s', $this->threshold  )];
 
         return $this->rv;
     }

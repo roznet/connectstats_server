@@ -11,7 +11,7 @@ if( isset( $_GET['token_id'] ) ){
 
     $rv = $process->validate_user($token_id);
     // if we have user id, check if necessary to register notification
-    if( isset( $user['cs_user_id'] ) ){
+    if( isset( $rv['cs_user_id'] ) ){
         $process->notification_register($rv['cs_user_id'], $_GET);
     }
 
