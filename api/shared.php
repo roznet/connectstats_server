@@ -2596,8 +2596,10 @@ class GarminProcess {
         $row['device_token'] = $device_token;
         $row['push_type'] = $push_type;
         $row['enabled'] = $enabled;
-        
-        $this->sql->insert_or_update( 'notifications_devices', $row, array( 'device_token' ) );
+
+        if( $row['device_token'] != "" ){
+            $this->sql->insert_or_update( 'notifications_devices', $row, array( 'device_token' ) );
+        }
         return( $row );
     }
 
