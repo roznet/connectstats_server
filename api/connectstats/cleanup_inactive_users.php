@@ -103,16 +103,15 @@ echo "\n";
 $tables = ['activities', 'weather', 'fitfiles', 'fitsession', 'assets_s3'];
 $before_sizes = [];
 foreach ($tables as $table) {
-    $row = $process->sql->query_first_row(
-        "SELECT COUNT(*) as cnt,
-         ROUND((data_length + index_length) / 1024 / 1024, 2) as size_mb
+    $size_row = $process->sql->query_first_row(
+        "SELECT ROUND((data_length + index_length) / 1024 / 1024, 2) as size_mb
          FROM information_schema.tables
          WHERE table_schema = DATABASE() AND table_name = '$table'"
     );
     $count_row = $process->sql->query_first_row("SELECT COUNT(*) as cnt FROM `$table`");
     $before_sizes[$table] = [
-        'count' => $count_row['cnt'],
-        'size_mb' => $row['size_mb'] ?? 0
+        'count' => $count_row['cnt'] ?? 0,
+        'size_mb' => $size_row['size_mb'] ?? 0
     ];
 }
 
@@ -343,16 +342,15 @@ if (!$skip_optimize) {
 // Get table sizes after cleanup
 $after_sizes = [];
 foreach ($tables as $table) {
-    $row = $process->sql->query_first_row(
-        "SELECT COUNT(*) as cnt,
-         ROUND((data_length + index_length) / 1024 / 1024, 2) as size_mb
+    $size_row = $process->sql->query_first_row(
+        "SELECT ROUND((data_length + index_length) / 1024 / 1024, 2) as size_mb
          FROM information_schema.tables
          WHERE table_schema = DATABASE() AND table_name = '$table'"
     );
     $count_row = $process->sql->query_first_row("SELECT COUNT(*) as cnt FROM `$table`");
     $after_sizes[$table] = [
-        'count' => $count_row['cnt'],
-        'size_mb' => $row['size_mb'] ?? 0
+        'count' => $count_row['cnt'] ?? 0,
+        'size_mb' => $size_row['size_mb'] ?? 0
     ];
 }
 
