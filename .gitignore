@@ -10,3 +10,4 @@ t.*
 t[0-9].*
 w.json
 nohup.out
+setup/connectstats_test/__pycache__/
