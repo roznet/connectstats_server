@@ -1,5 +1,4 @@
 <?php
-error_reporting(E_ALL & ~E_DEPRECATED);
 
 /*
  *  MIT Licence
@@ -28,7 +27,7 @@ error_reporting(E_ALL & ~E_DEPRECATED);
  */
 
 
-error_reporting(E_ALL);
+error_reporting(E_ALL & ~E_DEPRECATED);
 
 /*
  * 
@@ -411,7 +410,19 @@ class GarminProcess {
     function reset_schema() {
         // For development database only
         if( $this->sql->table_exists( 'dev' ) ){
-            $tables = array( 'activities', 'assets', 'tokens', 'error_activities', 'error_fitfiles', 'schema', 'users', 'fitfiles', 'fitsession', 'weather' );
+            $tables = array(
+                // ensure_schema tables
+                'usage', 'users', 'users_usage', 'tokens',
+                'cache_activities', 'cache_activities_map',
+                'cache_fitfiles', 'cache_fitfiles_map',
+                'activities', 'weather', 'fitsession', 'fitfiles',
+                'assets', 'assets_s3', 'schema',
+                // dynamic tables
+                'notifications', 'notifications_devices', 'notifications_activities',
+                'users_active',
+                // error tables
+                'error_cache_activities', 'error_cache_fitfiles', 'error_users'
+            );
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
             }

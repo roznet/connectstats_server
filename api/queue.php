@@ -205,6 +205,7 @@ class Queue {
 
 
     function add_task( $command, $cwd, $not_before_ts = NULL ){
+        $this->ensure_schema();
         if( $not_before_ts ){
             $this->sql->insert_or_update( 'tasks', array( 'task_cwd' => $cwd, 'task_command' => $command, 'not_before_ts' => $not_before_ts ) );
         }else{
