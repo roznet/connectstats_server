@@ -1,4 +1,6 @@
 <?php
+error_reporting(E_ALL & ~E_DEPRECATED);
+
 /*
  *  MIT Licence
  *
@@ -76,6 +78,7 @@ error_reporting(E_ALL);
 include_once( 'queue.php');
 include_once( 'sql_helper.php');
 include_once( 'S3.php' );
+include_once( 'lib/Auth.php' );
 
 class garmin_sql extends sql_helper{
 	function __construct() {
@@ -372,10 +375,14 @@ class GarminProcess {
         include( 'config.php' );
         $this->api_config = $api_config;
 
+        // Initialize Auth handler
+        $this->auth = new Auth($this->sql, $this->api_config);
+        $this->auth->set_status($this->status);
     }
-    
+
     function set_verbose($verbose){
         $this->verbose = $verbose;
+        $this->auth->set_verbose($verbose);
         $this->sql->verbose = $verbose;
         $this->status->verbose = $verbose;
     }
@@ -1010,21 +1017,11 @@ class GarminProcess {
         }
     }
     function authorization_header_for_token_id( $full_url, $token_id ){
-        $row = $this->sql->query_first_row( "SELECT * FROM tokens WHERE token_id = $token_id" );
-        return $this->authorization_header( $full_url, $row['userAccessToken'], $row['userAccessTokenSecret'] );
+        return $this->auth->authorization_header_for_token_id($full_url, $token_id);
     }
 
     function interpret_authorization_header( $header ){
-        $maps = array();
-        $split = explode( ', ', str_replace( 'OAuth ', '', $header ) );
-
-        foreach( $split as $def ) {
-            $sub = explode('=', str_replace( '"', '', $def ) );
-            if( count( $sub ) > 0 ){
-                $maps[ $sub[0] ] = $sub[1];
-            }
-        }
-        return $maps;
+        return $this->auth->interpret_authorization_header($header);
     }
 
     /**
@@ -1032,33 +1029,7 @@ class GarminProcess {
      *   of the server. This should be called to valid any system call or maintenance calls.
      */
     function authenticate_system_call(){
-        $failed = true;
-        
-        $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
-        if( isset( apache_request_headers()['Authorization'] ) ){
-            $header = apache_request_headers()['Authorization'];
-
-            $maps = $this->interpret_authorization_header( $header );
-            if( isset( $maps['oauth_token'] ) && isset( $maps['oauth_nonce'] ) && isset( $maps['oauth_signature'] ) ){
-                $reconstructed = $this->authorization_header( $full_url, $this->api_config['serviceKey'], $this->api_config['serviceKeySecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
-                $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
-                $reconmaps = $this->interpret_authorization_header( $reconstructed );
-                // Check if token id is consistent with the token id of the access token
-
-                if( urldecode($reconmaps['oauth_signature']) == urldecode($maps['oauth_signature']) ){
-                    $failed = false;
-                }
-            }
-        }
-
-        if( $failed ){
-            if( $this->verbose ){
-                $this->log( 'ERROR', 'authorization failed' );
-            }else{
-                header('HTTP/1.1 401 Unauthorized error');
-            }
-            die;
-        }
+        return $this->auth->authenticate_system_call();
     }
 
     /**
@@ -1070,48 +1041,7 @@ class GarminProcess {
      *   is returned for protection of the user data
      */
     function authenticate_header($token_id){
-        $failed = true;
-
-        // This should never be called with system token
-        if( $token_id == Paging::SYSTEM_TOKEN ){
-            if( $this->verbose ){
-                $this->log( 'ERROR', 'authorization failed' );
-            }else{
-                header('HTTP/1.1 401 Unauthorized error');
-            }
-            die;
-        }
-        
-        $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
-        if( isset( apache_request_headers()['Authorization'] ) ){
-            $header = apache_request_headers()['Authorization'];
-
-            $maps = $this->interpret_authorization_header( $header );
-            if( isset( $maps['oauth_token'] ) && isset( $maps['oauth_nonce'] ) && isset( $maps['oauth_signature'] ) ){
-                $userAccessToken = $maps['oauth_token'];
-                $row = $this->sql->query_first_row( "SELECT userAccessTokenSecret,token_id FROM tokens WHERE userAccessToken = '$userAccessToken'" );
-                if( isset( $row['token_id'] ) ){
-                    $reconstructed = $this->authorization_header( $full_url, $userAccessToken, $row['userAccessTokenSecret'], $maps['oauth_nonce'], $maps['oauth_timestamp'] );
-                    $reconstructed = str_replace( 'Authorization: ', '', $reconstructed );
-                    $reconmaps = $this->interpret_authorization_header( $reconstructed );
-                    // Check if token id is consistent with the token id of the access token
-
-
-                    if( urldecode($reconmaps['oauth_signature']) == urldecode($maps['oauth_signature']) && $row['token_id'] == $token_id ){
-                        $failed = false;
-                    }
-                }
-            }
-        }
-        if( $failed ){
-            if( $this->verbose ){
-                $this->log( 'ERROR', 'authorization failed' );
-            }else{
-                header('HTTP/1.1 401 Unauthorized error');
-            }
-            die;
-
-        }
+        return $this->auth->authenticate_header($token_id, Paging::SYSTEM_TOKEN);
     }
 
     /**
@@ -1120,63 +1050,7 @@ class GarminProcess {
      *   otherwise they will be generated
      */
     function authorization_header( $full_url, $userAccessToken, $userAccessTokenSecret, $nonce = NULL, $timestamp = NULL){
-        $consumerKey = $this->api_config['consumerKey'];;
-        $consumerSecret = $this->api_config['consumerSecret'];
-    
-        $url_info = parse_url( $full_url );
-
-        $get_params = array();
-        if( isset( $url_info['query'] ) ){
-            parse_str( $url_info['query'], $get_params );
-        }
-
-        $url = sprintf( '%s://%s%s', $url_info['scheme'], $url_info['host'], $url_info['path'] );
-
-        if( $nonce == NULL ){
-            $nonce = bin2hex(random_bytes( 16 ));
-        }
-        if( $timestamp == NULL ){
-            $timestamp = (string)round(microtime(true) );
-        }
-
-        $method = 'GET';
-
-        $signatureMethod = 'HMAC-SHA1';
-        $version = '1.0';
-
-        $oauth_params = array(
-            'oauth_consumer_key' => $consumerKey,
-            'oauth_token' => $userAccessToken,
-            'oauth_nonce' => $nonce,
-            'oauth_signature_method' => 'HMAC-SHA1',
-            'oauth_timestamp' => $timestamp,
-            'oauth_version' => $version
-        );
-        $all_params = array_merge( $oauth_params, $get_params );
-        $params_order = array_keys( $all_params );
-        sort($params_order);
-
-        $base_params = array();
-
-        foreach($params_order as $param) {
-            array_push( $base_params, sprintf( '%s=%s', $param, $all_params[$param]) );
-        }
-
-        $base = sprintf( '%s&%s&%s', $method, rawurlencode($url), rawurlencode(implode('&',$base_params) ) );
-
-        $key = rawurlencode($consumerSecret) . '&' . rawurlencode($userAccessTokenSecret);
-        $oauth_params['oauth_signature'] = base64_encode(hash_hmac('sha1', $base, $key, true));
-
-        $header_params = array_keys($oauth_params);
-        sort($header_params);
-        $headers = array();
-        foreach( $header_params as $param) {
-            array_push( $headers, sprintf( '%s="%s"', $param, rawurlencode($oauth_params[$param] ) ) );
-        }
-
-        $header = sprintf( 'Authorization: OAuth %s', implode(', ', $headers) );
-
-        return $header;
+        return $this->auth->authorization_header($full_url, $userAccessToken, $userAccessTokenSecret, $nonce, $timestamp);
     }
 
     /**
@@ -1184,29 +1058,7 @@ class GarminProcess {
      *    corresponding userAccessToken and tokenSecret
      */
     function get_url_data($url, $userAccessToken, $userAccessTokenSecret){
-        $ch = curl_init();
-
-        curl_setopt($ch, CURLOPT_URL, $url );
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1 );
-        if( $userAccessToken && $userAccessTokenSecret ){
-            $headers = [ $this->authorization_header( $url, $userAccessToken, $userAccessTokenSecret ) ];
-            curl_setopt($ch, CURLOPT_HTTPHEADER, $headers );
-            if ($this->verbose) {
-                $this->log('CURL', 'AuthToken: %s URL: %s', $userAccessToken, $url);
-            }
-        }else{
-            if ($this->verbose) {
-                $this->log('CURL', '%s', $url);
-            }
-        }
-
-        $data = curl_exec($ch);
-
-        if( $data === false ) {
-            $this->status->error( sprintf( 'CURL Failed %s', curl_error($ch ) ) );
-        }
-        curl_close($ch);
-        return $data;
+        return $this->auth->get_url_data($url, $userAccessToken, $userAccessTokenSecret);
     }
 
     /**

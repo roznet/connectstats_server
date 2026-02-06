@@ -105,10 +105,10 @@ The admin can also extract `.db` files from the zip and open them in the bundled
 ## Gotchas
 
 - The two `BugReport` classes have the same name — never include both `bugreport.php` and `list.php` in the same request.
-- `list.php:show_one_for_id()` uses `$_GET['id']` directly in a SQL query (line 178) without parameterization.
-- `export.php` also uses `$_GET['id']` in a raw SQL query (line 46).
-- File paths in `saved_file_name()` use `strftime` which is deprecated in PHP 8.1+.
-- The email notification method is named `send_email_if_necesssary` (typo in the original).
+- `list.php:show_one_for_id()` uses `$_GET['id']` directly in a SQL query (line 178) without parameterization. **This is a critical SQL injection vulnerability and should be fixed immediately using prepared statements.**
+- `export.php` also uses `$_GET['id']` in a raw SQL query (line 46). **This is a critical SQL injection vulnerability and should be fixed immediately using prepared statements.**
+- File paths in `saved_file_name()` use `strftime`, which is deprecated in PHP 8.1+. Consider migrating to `date()` or `DateTime`.
+- The email notification method is named `send_email_if_necesssary` (typo in the original: should be `send_email_if_necessary`).
 
 ## References
 
