@@ -54,6 +54,11 @@ Historical activity retrieval from Garmin (3-month auto, 2-year max).
 In-app bug report submission, storage, and admin review.
 → Full doc: bugreport.md
 
+### testing
+Test infrastructure: schema validation, API smoke tests, full integration tests.
+Key exports: `test.py`, `connectstats_test/`
+→ Full doc: testing.md
+
 ### oauth2-migration
 **Migration plan**: OAuth 1.0 → OAuth 2.0 (deadline: Dec 2026).
 → Full doc: oauth2-migration.md
