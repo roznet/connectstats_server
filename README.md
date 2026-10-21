@@ -53,4 +53,4 @@ You can use the `https:{baseurl}/api/connectstats/file` entry point to obtain th
 
 ## External Dependencies
 
-This project uses [phpFITFileAnalysis.php](https://github.com/adriangibbons/php-fit-file-analysis) for parsing FIT files in php and [phpliteadmin](https://www.phpliteadmin.org) for convenience to look at data in bug reports.
+This project uses [phpFITFileAnalysis.php](https://github.com/adriangibbons/php-fit-file-analysis) for parsing FIT files in php.

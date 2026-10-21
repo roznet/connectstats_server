@@ -93,7 +93,7 @@ Parsed lines get:
 - Duplicate collapsing: consecutive identical lines become `[REPEATED N]`
 - Compact/full toggle: compact omits pid, shows shorter source references
 
-The admin can also extract `.db` files from the zip and open them in the bundled `phpliteadmin/`.
+The admin can also extract `.db` files from the zip into `bug_data_directory/sqlite/`; open them locally with a SQLite client.
 
 ## Key Choices
 
@@ -114,5 +114,4 @@ The admin can also extract `.db` files from the zip and open them in the bundled
 
 - Code: `bugreport/` directory
 - Config sample: `bugreport/config_bugreport.sample.php`
-- Bundled SQLite viewer: `bugreport/phpliteadmin/`
 - Related: [api-endpoints](api-endpoints.md), [database-schema](database-schema.md)
