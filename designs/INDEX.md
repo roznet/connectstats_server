@@ -62,3 +62,7 @@ Key exports: `test.py`, `connectstats_test/`
 ### oauth2-migration
 **Migration plan**: OAuth 1.0 → OAuth 2.0 (deadline: Dec 2026).
 → Full doc: oauth2-migration.md
+
+### php-upgrade
+Plan and evaluation for moving prod to Ubuntu 26.04 LTS + PHP 8.5 + MySQL 8.4.
+→ Full doc: php-upgrade.md
