@@ -16,6 +16,9 @@ services:
       UPSTREAM: ${UPSTREAM:-app:80}
     volumes:
       - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Static site outside /prod (redirects, apple-app-site-association, favicons):
+      # deployment-specific, see the Caddyfile. Empty dir = 404 for those paths.
+      - ${SITE_DIR:-${DATA_DIR}/site}:/srv/site:ro
       # Certificates on the Volume, so a rebuild doesn't re-issue them (rate limits).
       - ${DATA_DIR}/caddy/data:/data
       - ${DATA_DIR}/caddy/config:/config

@@ -11,9 +11,22 @@
 		max_size 64MB
 	}
 
+	# The API and bug reports: everything the app serves is under /prod.
 	# UPSTREAM: app:80 normally; app-test:80 while the Phase 5 test stack is up.
-	reverse_proxy {$UPSTREAM:app:80} {
-		header_up X-Forwarded-Proto {scheme}
+	handle /prod/* {
+		reverse_proxy {$UPSTREAM:app:80} {
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Everything else: the deployment's own static site, mounted at /srv/site
+	# (SITE_DIR in docker-compose.prod.yml): `*.caddy` snippets with its
+	# redirects and headers, files under `www/`. Not part of this repo. Without
+	# one, these paths are 404.
+	handle {
+		root * /srv/site/www
+		import /srv/site/*.caddy
+		file_server
 	}
 
 	log {
