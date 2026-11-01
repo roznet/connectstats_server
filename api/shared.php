@@ -1217,7 +1217,7 @@ class GarminProcess {
                     }
                     if( isset( $this->api_config['visualCrossingKey'] ) ){
                         $visualCrossing = $this->weather_query_visualCrossing( $this->api_config['visualCrossingKey'], $lat, $lon, $st, $ts );
-                        if( $visualCrossing ){
+                        if( $visualCrossing && $this->weather_visualCrossing_has_data( $visualCrossing ) ){
                             $weather['visualCrossing'] = $visualCrossing;
                         }
                     }
@@ -1229,7 +1229,10 @@ class GarminProcess {
                         }
                     }
 
-                    $this->sql->insert_or_update('weather', array('cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather)), array('file_id'));
+                    // ~40% of Visual Crossing answers are "No data available": don't store empty rows
+                    if( count( $weather ) > 0 ){
+                        $this->sql->insert_or_update('weather', array('cs_user_id' => $cs_user_id, 'file_id' => $file_id, 'json' => json_encode($weather)), array('file_id'));
+                    }
                 }
             }
             if( isset( $fit_mesgs['session'] ) ){
@@ -1258,6 +1261,21 @@ class GarminProcess {
         return ($weather);
     }
     
+    /**
+     *  True if a Visual Crossing answer has at least one observation
+     *  (empty answers come back as a single value with info "No data available")
+     */
+    function weather_visualCrossing_has_data( $visualCrossing ){
+        if( isset( $visualCrossing['location']['values'] ) && is_array( $visualCrossing['location']['values'] ) ){
+            foreach( $visualCrossing['location']['values'] as $value ){
+                if( isset( $value['temp'] ) ){
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     function weather_query_openWeatherMap( $key, $lat, $lon, $st, $ts )
     {
         // https://api.openweathermap.org/data/2.5/onecall/timemachine?lat=60.99&lon=30.9&dt=1598373599&appid={KEY}

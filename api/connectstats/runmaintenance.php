@@ -42,10 +42,14 @@ $process->set_verbose(true);
 $process->ensure_commandline($argv??NULL);
 
 $max_days = 45;
+// The cache holds the raw Garmin notifications, already processed into activities/fitfiles
+$cache_max_days = 14;
+// Push notification and error logs
+$log_max_days = 90;
 
 // Clear cache older than max days and optimize table
 foreach( array( 'cache_activities', 'cache_fitfiles', 'cache_activities_map', 'cache_fitfiles_map' ) as $table ) {
-    $query = sprintf( "SELECT MAX(cache_id),COUNT(*) FROM %s WHERE ts < NOW() - INTERVAL %d DAY", $table, $max_days );
+    $query = sprintf( "SELECT MAX(cache_id),COUNT(*) FROM %s WHERE ts < NOW() - INTERVAL %d DAY", $table, $cache_max_days );
     $res = $process->sql->query_first_row( $query );
     if( isset( $res['MAX(cache_id)'] ) ) {
         $delete_count = $res['COUNT(*)'];
@@ -82,6 +86,22 @@ if( ! $process->sql->execute_query( $summarize_query ) ){
 $delete_query = sprintf( "DELETE FROM `usage` WHERE date(ts) < SUBDATE(CURDATE(),%d)", $max_days );
 $process->sql->execute_query( $delete_query );
 $process->sql->execute_query( 'OPTIMIZE TABLE `usage`' );
+
+// Clear old push notification and error logs (error tables are created on demand as error_<table>)
+$log_tables = array( 'notifications', 'notifications_activities' );
+foreach( $process->sql->query_as_array( "SHOW TABLES LIKE 'error\\_%'" ) as $row ){
+    $log_tables[] = array_values( $row )[0];
+}
+foreach( $log_tables as $table ) {
+    if( $process->sql->table_exists( $table ) ){
+        $delete_query = sprintf( "DELETE FROM `%s` WHERE ts < NOW() - INTERVAL %d DAY", $table, $log_max_days );
+        if( !$process->sql->execute_query( $delete_query ) ){
+            $process->log( 'ERROR', $delete_query );
+        }else{
+            $process->log( 'INFO', 'Deleted %d entries older than %d days from %s', $process->sql->connection->affected_rows, $log_max_days, $table );
+        }
+    }
+}
 
 $process->log( 'EXIT', 'Success' );
 exit();

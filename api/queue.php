@@ -453,7 +453,8 @@ class Queue {
     }
 
     function clean_tasks_and_queues(){
-        $res_first = $this->sql->query_first_row( "SELECT task_id FROM `tasks` WHERE ts < NOW() - INTERVAL 45 DAY ORDER BY task_id DESC LIMIT 1" );
+        // Tasks are only useful while debugging recent processing: keep a week (~250k rows)
+        $res_first = $this->sql->query_first_row( "SELECT task_id FROM `tasks` WHERE ts < NOW() - INTERVAL 7 DAY ORDER BY task_id DESC LIMIT 1" );
         if( isset( $res_first['task_id'] ) ){
             $first_task_id = intval($res_first['task_id']);
             if ($first_task_id > 0) {
