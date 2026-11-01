@@ -26,6 +26,10 @@ Every process that writes data runs as UID/GID 2000 (`APP_UID`/`APP_GID`): the i
 
 Config options added for this setup (see `api/config.sample.php`): `queue_autostart`, `queue_count`, `sandbox`.
 
+### Scheduled jobs
+
+Crontab lines call `cronjob <slug> '<command>'` (`docker/worker/cronjob.sh`): output goes to `/var/www/log/cron/<slug>_<time>.log`, and with `HEALTHCHECKSIO_PING_KEY` set each run pings the healthchecks.io check `connectstats-<slug>` (start, then success or the exit code with the log tail). Output containing a PHP fatal or uncaught exception counts as a failure even with exit 0. There is no local mail. `connectstats-check-status` checks the public status endpoint and a signed search; the deployment crontab runs it twice a day.
+
 ## Local development
 
 ```bash

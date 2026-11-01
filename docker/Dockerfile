@@ -52,7 +52,9 @@ RUN groupmod -g "${APP_GID}" www-data \
 COPY docker/apache/connectstats.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/php/connectstats.ini "$PHP_INI_DIR/conf.d/zz-connectstats.ini"
 COPY docker/worker/entrypoint.sh /usr/local/bin/connectstats-worker
-RUN chmod +x /usr/local/bin/connectstats-worker
+COPY docker/worker/cronjob.sh /usr/local/bin/cronjob
+COPY docker/worker/check_status.sh /usr/local/bin/connectstats-check-status
+RUN chmod +x /usr/local/bin/connectstats-worker /usr/local/bin/cronjob /usr/local/bin/connectstats-check-status
 
 # Writable runtime dirs (bind-mounted from the Volume in compose, except tmp which is a
 # named volume: scratch files and the S3 read cache, config 's3_cache_local' => '/var/www/tmp/s3_cache').

@@ -78,6 +78,9 @@ services:
       <<: *email-env
       CRONTAB: ${CRONTAB:-/var/www/html/prod/docker/worker/crontab}
       QUEUE_CHECK_INTERVAL: ${QUEUE_CHECK_INTERVAL:-60}
+      # healthchecks.io ping key for the scheduled jobs (docker/worker/cronjob.sh);
+      # empty = jobs run without pings.
+      HEALTHCHECKSIO_PING_KEY: ${HEALTHCHECKSIO_PING_KEY:-}
     # The php:apache base image sets STOPSIGNAL SIGWINCH (Apache graceful stop); the
     # worker's shutdown handler listens for SIGTERM. Let running tasks finish when
     # stopping (cutover, deploys).
