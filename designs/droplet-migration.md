@@ -62,7 +62,8 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [x] Commit missing `api/lib/Auth.php` (`0420f5c`). Dev at `/var/www/html/dev` was failing without it
 - [x] Pull dev on the droplet
 - [x] Reset `prod` branch to master (force push, 2026-11-01) and `git reset --hard origin/prod` in `/var/www/html/prod`. Old prod head was `4efc6ea` (same phpliteadmin fix as master's `30b6cb5`)
-- [ ] Commit + deploy the cleanup fixes (Phase 1) to dev, then prod, and update the cron wrapper on the droplet
+- [x] Commit the cleanup fixes (`6fb2e20`) and deploy to dev (2026-11-01, dry runs OK on the dev DB)
+- [ ] Deploy to prod, then update the cron wrapper on the droplet (the wrapper fix makes `--include-orphans` take effect, so deploy it after the PHP fixes)
 - [ ] Remove stale GitHub entries from the droplet's `~/.ssh/known_hosts` (see Gotchas)
 
 ### Phase 1: Prune data before the move
