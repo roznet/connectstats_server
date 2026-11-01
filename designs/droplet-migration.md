@@ -131,9 +131,10 @@ Local stack built 2026-11-01, see [docker/README.md](../docker/README.md). Confi
 
 - [x] `docker/Dockerfile`: `php:8.5-apache` with mod_php (keeps `apache_request_headers()['Authorization']`), `mysqli`, `zip`, rewrite/headers/remoteip, `AllowOverride All`, PHP CLI for the queue, zsh/jq/curl/procps, pinned `supercronic`. Target `test` adds Python for `setup/test.py`
 - [x] `docker-compose.yml`: `app`, `worker`, `db` (`docker/mysql/Dockerfile`: MySQL 8.4 with settings and init baked in). `docker-compose.dev.yml` adds live code, a Garmin user-id mock and the `tests` service
-- [ ] DigitalOcean Volume (region decided first), ext4, mounted at `/mnt/connectstats_data` via `/etc/fstab` by UUID with `nofail` (same as the main droplet's `/mnt/flyfun_data`). Start at ~50 GB and grow when needed
-- [ ] Host user/group `dockerapp` 2000:2000 (`nologin`), brice in the group (same convention as the main droplet). All containers run as 2000 (`www-data` is remapped in the image, MySQL runs with `user: 2000:2000`) with `umask 0002`, so everything on the Volume is `dockerapp`-owned and group-writable
-- [ ] Volume layout (all `dockerapp:dockerapp`):
+- [x] **Droplet created 2026-11-01**: `connectstats-lon1` (lon1, Premium AMD 2 vCPU / 4 GB / 80 GB, Ubuntu 26.04.1 LTS), test hostname `new.connectstats.app`. Keys-only SSH, root login off, ufw 22/80/443, unattended upgrades, Docker 29.9 + Compose v5.6 with log caps (5 × 50 MB). Config managed like the other droplets: private repo host dir, `syncfiles push` (details in the private ops note). Stack running in `sandbox` mode with empty databases; Caddy certificate issued
+- [x] DigitalOcean Volume `connectstats-data`, 50 GB ext4, mounted at `/mnt/connectstats_data` by DigitalOcean's systemd mount unit (by UUID, `nofail`). Sized from measurements: ~35 GB expected (DB ~13.5 GB, bugs 3.9 GB, logs ~3 GB, dump/backup staging, binlogs ~0.3 GB/day uncompressed on the old box)
+- [x] Host user/group `dockerapp` 2000:2000 (`nologin`), brice in the group (same convention as the main droplet). All containers run as 2000 (`www-data` is remapped in the image, MySQL runs with `user: 2000:2000`) with `umask 0002`, so everything on the Volume is `dockerapp`-owned and group-writable
+- [x] Volume layout (all `dockerapp:dockerapp`, created 2026-11-01; plus `caddy/` for certificates):
 
   | Path | Mounted at | Mode | Notes |
   |---|---|---|---|
@@ -145,7 +146,7 @@ Local stack built 2026-11-01, see [docker/README.md](../docker/README.md). Confi
   | `backups/` | (host only) | `2770` | Nightly dump staging before the off-box copy |
 
   Not on the Volume: tmp and the S3 read cache (named Docker volume, safe to lose; config `tmp` → `/var/www/tmp`, `s3_cache_local` → `/var/www/tmp/s3_cache`), Docker images, the git checkout with the compose files (its `.env` is a symlink to `config/compose.env`). So a rebuild is: new droplet, attach Volume, clone, symlink `.env`, `docker compose up -d`
-- [ ] Setgid on the Volume dirs so files brice creates also land in group `dockerapp`
+- [x] Setgid on the Volume dirs so files brice creates also land in group `dockerapp`
 - [x] Compose takes the path from `.env` (`DATA_DIR=/mnt/connectstats_data`, defaulting to `./data` locally) instead of hardcoding it, so the same file runs on a Mac
 - [x] Bind mounts from `DATA_DIR` / `LOG_DIR` / `CONFIG_DIR` as in the table above; tmp is a named volume. Code comes from the image, config and secrets from `CONFIG_DIR`
 - [x] MySQL settings in git (`docker/mysql/connectstats.cnf`; buffer pool from `INNODB_BUFFER_POOL_SIZE` in `.env`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
@@ -174,7 +175,7 @@ Plan:
 - [ ] **`S3::getBucket()` (listing) fails with `SignatureDoesNotMatch` on PHP 7.4 and 8.5**, with prod and dev credentials alike, so it's the vendored v4 signing of list requests (query string `prefix`/`max-keys`), not the migration. `cleanup_orphan_s3.php` lists each inactive user's prefix, so its monthly run has likely been failing every listing. Fix the canonical query string in `S3.php` (or list by `assets.path` like the backlog cleanup)
 - [x] `sandbox` config flag: skips push notifications, weather queries, S3 writes and deletes (checked in the worker container 2026-11-01)
 - [x] Graceful `docker compose stop worker`: workers finish the current task and end `dead:stopped` (~2 s). Needs `stop_signal: SIGTERM` because the base image sets `STOPSIGNAL SIGWINCH`
-- [ ] TLS: Caddy in front (as on the main droplet) or certbot; today it's acme.sh in brice's crontab
+- [x] TLS: Caddy 2.10 in `docker-compose.prod.yml`, certificates on the Volume (old box: acme.sh in a user crontab)
 - [ ] Image update routine (rebuild/pull for PHP and MySQL security fixes)
 - [x] Same compose locally for the test suite (`docker compose run --rm tests full`)
 
