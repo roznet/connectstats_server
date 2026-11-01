@@ -233,7 +233,8 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 - [x] Known pre-existing bug: `connectstats/sync` looks up `summaryId` with `%d`, so string ids (`…-file`) never match (affects the secondary-server backup path only)
 - [x] Known pre-existing data issue: emoji in activity names are stored with their JSON escapes stripped (`ud83d…` instead of `\ud83d…`) on prod
 - [x] **Found and fixed by the simulator: every signed request got 401 behind Caddy** (`de53e0a`). `Auth::get_request_url()` rebuilt the URL from `REQUEST_SCHEME` (`http` in the container) while the app signs the `https` URL. It now honours `X-Forwarded-Proto` (http/https only; it only selects which URL the signature is checked against). Same fix for the garmin-health file URLs in `shared.php`. `test.py smoke` over https through Caddy: 7/7 (it had passed before only because it ran over plain http inside Docker)
-- [ ] Real device / simulator against the test hostname: login, sync, FIT download, bug report upload
+- [x] Simulator against the test hostname (2026-11-01): login, stats, activity list, FIT downloads (read from the prod S3 bucket), bug report upload (zip on the Volume), Resend notification, protected list page. Found: Resend rejects the whole email when the reporter's address is invalid (`b@y`), which `mail()` never did; reply-to now only set when the address validates (`0c3829a`)
+- [ ] Not covered: push notifications (sandbox; would need a one-off send to the owner's device), S3 writes (sandbox), weather queries (sandbox), maintenance/cleanup jobs, `backup`/`sync` system endpoints, Garmin deregistration webhook
 - [ ] Before cutover: remove `docker-compose.test.yml` from `COMPOSE_FILE` and `UPSTREAM`, `docker compose rm -sf db-test app-test worker-test`, optionally delete `test/` on the Volume
 
 ### Phase 6: Cutover
