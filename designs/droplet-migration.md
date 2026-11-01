@@ -63,7 +63,8 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [x] Pull dev on the droplet
 - [x] Reset `prod` branch to master (force push, 2026-11-01) and `git reset --hard origin/prod` in `/var/www/html/prod`. Old prod head was `4efc6ea` (same phpliteadmin fix as master's `30b6cb5`)
 - [x] Commit the cleanup fixes (`6fb2e20`) and deploy to dev (2026-11-01, dry runs OK on the dev DB)
-- [ ] Deploy to prod, then update the cron wrapper on the droplet (the wrapper fix makes `--include-orphans` take effect, so deploy it after the PHP fixes)
+- [x] Deploy to prod (2026-11-01, `prod` fast-forwarded to `1114cb0`; tests and dry runs same as before the update)
+- [ ] Update the cron wrapper on the droplet, then run it with `--dry-run`
 - [ ] Remove stale GitHub entries from the droplet's `~/.ssh/known_hosts` (see Gotchas)
 
 ### Phase 1: Prune data before the move
@@ -131,6 +132,13 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 - [ ] Old Apache reverse-proxies `/prod/api/` to the new box until DNS propagates, so Garmin webhooks don't land in the old DB
 - [ ] Keep the old droplet at least two weeks; rollback = DNS back + replay rows received on the new box
 
+## Releasing and Testing Prod
+
+- `prod` is a pointer to a commit on master, never committed to directly. Release with `git push origin master:prod` (no `--force`, so a non-fast-forward fails), then `git pull --ff-only` in `/var/www/html/prod`.
+- Tests run on the droplet (they read token secrets from the DB, which only accepts local connections). The droplet has Python 3.8 and the test code uses 3.9 syntax, so run from a scratch copy: copy `setup/` to `~/tmp/cstest/`, symlink `~/tmp/cstest/api` to the checkout's `api/`, prepend `from __future__ import annotations` to `test.py` and `connectstats_test/*.py`, then `python3 test.py all --base-url https://connectstats.app/prod`.
+- Expected on prod: smoke 7/7, schema 41/43. The two failures are expected: no `dev` marker table (that's the `reset_schema()` safety lock) and no `assets_s3` table.
+- Then dry-run both cleanup scripts, check Apache's error log, and do a refresh from a real device (check the `usage` table for its requests).
+
 ## Gotchas
 
 - **Droplet git pulls fail intermittently** with "Host key verification failed": `~/.ssh/known_hosts` has GitHub's pre-2023 RSA key (`SHA256:nThbg6kX…`) under some GitHub IPs (lines 1, 2, 5). With `CheckHostIP yes`, ssh prompts when DNS returns one of those IPs and there's no tty. Workaround: `GIT_SSH_COMMAND="ssh -o CheckHostIP=no" git fetch`. Fix: remove those entries.
@@ -152,4 +160,4 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 
 - **2026-10-22**: PHP 8 evaluation written up ([php-upgrade](php-upgrade.md), branch `claude/php-upgrade-plan`)
 - **2026-10-25**: Committed missing `Auth.php`, dev droplet fixed
-- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files
+- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users
