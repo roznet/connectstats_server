@@ -1,0 +1,24 @@
+# TLS front for the droplet (docker-compose.prod.yml). SITE_ADDRESSES is a
+# comma-separated list, e.g. "new.connectstats.app" before cutover and
+# "connectstats.app, new.connectstats.app" after.
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESSES} {
+	encode gzip
+
+	# Bug report uploads and FIT files.
+	request_body {
+		max_size 64MB
+	}
+
+	reverse_proxy app:80 {
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,21 @@
+# Droplet overlay: TLS with Caddy in front of `app`.
+# Enabled by COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml (see .env.prod.sample).
+
+services:
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESSES: ${SITE_ADDRESSES:?set SITE_ADDRESSES}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates on the Volume, so a rebuild doesn't re-issue them (rate limits).
+      - ${DATA_DIR}/caddy/data:/data
+      - ${DATA_DIR}/caddy/config:/config
