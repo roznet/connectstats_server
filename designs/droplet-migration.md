@@ -17,8 +17,10 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 | New droplet vs in-place upgrade | **New droplet** | Side-by-side testing, DNS cutover, old box stays as rollback |
 | Consolidate onto main droplet (`flyfun.aero`)? | **No** | Main droplet: root disk 82% full (12 GB free), memory peaks 82%, load spikes to 22. ConnectStats DB alone doesn't fit |
 | Packaging | **Docker Compose**: `app` (php-apache), `worker` (same image, queue + cron jobs), `db` (MySQL 8.4) | PHP version pinned in the Dockerfile, independent of the OS. Same compose runs locally for tests. Security fixes come from rebuilding images, not `apt`, so this needs a routine |
-| Droplet size | **2 vCPU / 4 GB, ~80 GB disk** (same CPU/RAM as today) | See measurements below |
-| Region | _open_ | Today nyc1; main droplet is lon1 |
+| Droplet size | **2 vCPU / 4 GB** (same CPU/RAM as today), smallest root disk that fits | Root disk only holds OS, Docker images and logs; data is on the Volume. See measurements below |
+| Data storage | **DigitalOcean Volume** mounted at `/mnt/connectstats_data` (same pattern as the main droplet's MySQL) | MySQL datadir, bug report uploads, `s3_cache_local`, `state`. Resizable online and cheap per GB, unlike the root disk (which needs a droplet resize). A future move is detach/attach. Not covered by droplet backups: needs its own backup (Phase 3) |
+| Database sync | **Replication**: old MySQL 8.0 as source → new 8.4 as replica, seeded from one dump | No prod downtime to seed; cutover is seconds instead of a dump/restore freeze, so Garmin webhooks aren't lost. Fallback: dump/restore during a freeze if replication fails. See Phase 4 |
+| Region | _open_ | Today nyc1; main droplet is lon1. **Decide before creating the Volume**: a Volume only attaches to droplets in its own region. Replication works across regions either way |
 | Retention for active users | _open_ | 85% of DB is the full history (since 2019) of active users. Pruning it means a reinstalled app can't re-download old activities |
 | Deregister dormant users with Garmin | _open_ | Garmin keeps pushing activities for users idle >1 year; the monthly cleanup deletes them again. Deregistering stops the inflow and leaves ~3.5k users to move to OAuth 2.0 instead of ~32k |
 | Prune empty weather rows | _open_ | ~470k of 1.84M weather rows are placeholders or errors (see Phase 1) |
@@ -69,7 +71,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 
 ### Phase 1: Prune data before the move
 
-**Cleanup bugs found and fixed (in working tree, not yet deployed):**
+**Cleanup bugs found and fixed (deployed to dev and prod 2026-11-01):**
 
 1. The droplet's cron wrapper `/var/www/bin/cleanup_inactive_users.zsh` built options in a string; zsh passed it as one argument, so `--include-orphans` was silently ignored. Now an array.
 2. `cleanup_inactive_users.php` read S3 paths from `assets_s3.s3path`, a column that doesn't exist (and `assets_s3` is empty). The query failed silently, so S3 files and `assets` rows were never deleted. Now reads `assets.path` (`s3:assets/users/{cs_user_id}/fit/{file_id}.fit`) through the new `GarminProcess::delete_from_s3_bucket()`, and deletes the `assets` rows.
@@ -97,7 +99,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 
 ### Phase 2: Code on PHP 8
 
-See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_REPORT_OFF)` in `sql_helper.php`, otherwise Garmin webhooks return 500 on PHP 8.1+. Branch `claude/php-upgrade-plan` holds that doc (now also in master's working tree).
+See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_REPORT_OFF)` in `sql_helper.php`, otherwise Garmin webhooks return 500 on PHP 8.1+.
 
 - [ ] P0 fixes, run `setup/test.py` on PHP 8.x locally (in the Docker image once Phase 3 exists)
 - [ ] P1 deprecations (dynamic properties, `strftime`, vendored `S3.php` / `phpFITFileAnalysis.php`)
@@ -105,8 +107,13 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 ### Phase 3: Docker
 
 - [ ] `Dockerfile`: `php:8.x-apache` + `mysqli`, `curl`, `zip`, `mbstring`; `a2enmod rewrite`; `AllowOverride All` (the `.htaccess` maps `/foo` → `foo.php`). Keep mod_php so `apache_request_headers()['Authorization']` keeps working (php-fpm needs `CGIPassAuth On`)
-- [ ] `docker-compose.yml`: `app`, `worker` (queue workers started via `exec('php ...')`, plus cron jobs), `db` (MySQL 8.4, data on a DigitalOcean Volume so a future move is detach/attach)
-- [ ] Volumes: `/var/www/bugs`, logs, tmp, `s3_cache_local`, config files
+- [ ] `docker-compose.yml`: `app`, `worker` (queue workers started via `exec('php ...')`, plus cron jobs), `db` (MySQL 8.4)
+- [ ] DigitalOcean Volume (region decided first), mounted at `/mnt/connectstats_data` via `/etc/fstab` with `nofail`. Layout: `mysql/` (datadir), `bugs/`, `s3_cache_local/`, `state/`. Start at ~50 GB and grow when needed
+- [ ] Compose takes the path from `.env` (`DATA_DIR=/mnt/connectstats_data`, defaulting to `./data` locally) instead of hardcoding it, so the same file runs on a Mac
+- [ ] Bind mounts: `${DATA_DIR}/mysql` → `/var/lib/mysql`, `${DATA_DIR}/bugs` → bug report uploads, etc. Logs and tmp stay on the root disk. Code and config come from git, secrets from `.env`
+- [ ] MySQL settings in git (compose `command:` or a mounted `my.cnf`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
+- [ ] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
+- [ ] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, plus Volume snapshots (scheduled, or before risky changes)
 - [ ] Cron: port the droplet's cron jobs and `/var/www/bin/*.zsh` wrappers to run inside `worker` or as `docker compose exec`
 - [ ] TLS: Caddy in front (as on the main droplet) or certbot; today it's acme.sh in brice's crontab
 - [ ] Image update routine (rebuild/pull for PHP and MySQL security fixes)
@@ -115,13 +122,26 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 ### Phase 4: Data migration
 
 - [ ] Inventory: `config.php` (dev + prod), bugreport config, crontabs, Apache vhost, `/var/www/bin`, `/var/www/state`, APNs and S3 credentials, Visual Crossing key
-- [ ] Rehearse `mysqldump --single-transaction --routines` of `garmin`, `queue`, `connectstats`, `garmin_dev` → restore into MySQL 8.4. Time it (sets the cutover freeze). Check charset (`SET NAMES 'utf8'` → utf8mb3 warnings) and `caching_sha2_password`
-- [ ] rsync `/var/www/bugs`
-- [ ] Final sync plan: stop queue on old box, final dump/restore (or dump only rows newer than the rehearsal)
+**Database: seed once, then replicate. Prod keeps running throughout.**
+
+Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 days, `server_id=1`, GTID off (so file/position replication). All tables InnoDB except one MyISAM table in `connectstats`. The app's MySQL user has no `RELOAD` / `REPLICATION` privileges: the seed dump and the replication user need MySQL root on the old box.
+
+- [ ] Prune first (Phase 1) so the seed is smaller
+- [ ] On the old box (as MySQL root): create a replication user (`REPLICATION SLAVE` only, `caching_sha2_password`, limited to the new box's IP)
+- [ ] Seed: `mysqldump --single-transaction --source-data=2 --routines --triggers --hex-blob --databases garmin queue connectstats garmin_dev`, compressed and streamed to the new box's Volume. `--single-transaction` reads a consistent InnoDB snapshot without blocking writes; `--source-data` takes a global read lock only for the instant it records the binlog position (it waits for running queries, so avoid cron windows). The MyISAM table isn't in the snapshot, but it's tiny and replication brings it up to date
+- [ ] Restore into MySQL 8.4 and time it (this is the fallback's freeze length). Check charset (`SET NAMES 'utf8'` → utf8mb3 warnings) and collations
+- [ ] Start replication from the binlog position in the dump header (`CHANGE REPLICATION SOURCE TO ... SOURCE_LOG_FILE, SOURCE_LOG_POS, SOURCE_SSL=1`, or over an SSH tunnel). Open 3306 on the old box only to the new box's IP. Must start within the 30-day binlog retention
+- [ ] Keep the replica `super_read_only` until cutover. Watch `SHOW REPLICA STATUS` (`Seconds_Behind_Source`, errors)
+- [ ] If replication breaks (e.g. 8.0 → 8.4 incompatibility), re-seed or fall back to dump/restore during a freeze
+
+**Files**
+
+- [ ] rsync `/var/www/bugs` to the Volume now, again just before cutover (only the delta)
+- [ ] FIT files stay in S3, nothing to move
 
 ### Phase 5: Parallel test of the new droplet
 
-- [ ] Bring it up under a test hostname with a restored copy of prod data
+- [ ] Bring it up under a test hostname. **Don't write to the replica**: test against a separate restored copy (another schema on the new MySQL, or a second `db` container from the same seed dump), or accept re-seeding the replica afterwards
 - [ ] `setup/test.py all` (non-destructive) against it; `full` against a dev DB
 - [ ] Real device: login, sync, FIT download, notifications, bug report upload
 - [ ] Manual checks not covered by tests: APNs, S3 upload, weather fetch, `sync`/`backup` system-auth endpoints, maintenance and cleanup jobs
@@ -129,9 +149,11 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 ### Phase 6: Cutover
 
 - [ ] Lower DNS TTL a day ahead
-- [ ] Stop queue on old box, final data sync, switch DNS
-- [ ] Old Apache reverse-proxies `/prod/api/` to the new box until DNS propagates, so Garmin webhooks don't land in the old DB
-- [ ] Keep the old droplet at least two weeks; rollback = DNS back + replay rows received on the new box
+- [ ] Stop the queue and cron jobs on the old box; final rsync of `/var/www/bugs`
+- [ ] Old Apache reverse-proxies `/prod/api/` to the new box (from here, no writes reach the old DB)
+- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's `SHOW BINARY LOG STATUS`), then `STOP REPLICA; RESET REPLICA ALL`, turn off `super_read_only`, start queue and cron on the new box
+- [ ] Switch DNS. The proxy keeps covering clients and Garmin until it propagates
+- [ ] Keep the old droplet at least two weeks; rollback = reverse replication (new → old) or replay rows received on the new box, then DNS back
 
 ## Releasing and Testing Prod
 
@@ -148,6 +170,7 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 - **zsh**: the droplet scripts are zsh; unquoted `$var` is not word-split (bug 1 above).
 - `information_schema` table sizes are cached for 24 h; use `SET SESSION information_schema_stats_expiry = 0` for fresh numbers.
 - `reset_schema()` only runs where a `dev` table exists. Prod has none (checked 2026-11-01).
+- The app's MySQL user can't run `SHOW BINARY LOGS`, take a `--source-data` dump or create users; use MySQL root on the droplet for replication work.
 
 ## Where Things Are
 
@@ -161,4 +184,4 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 
 - **2026-10-22**: PHP 8 evaluation written up ([php-upgrade](php-upgrade.md), branch `claude/php-upgrade-plan`)
 - **2026-10-25**: Committed missing `Auth.php`, dev droplet fixed
-- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served)
+- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served). Decided: data on a DigitalOcean Volume, database moved by replication (seed dump, no prod downtime); old box's binlog settings checked and suitable
