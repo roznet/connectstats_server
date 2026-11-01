@@ -1,9 +1,7 @@
 # TLS front for the droplet (docker-compose.prod.yml). SITE_ADDRESSES is a
 # comma-separated list, e.g. "new.connectstats.app" before cutover and
-# "connectstats.app, new.connectstats.app" after.
-{
-	email {$ACME_EMAIL}
-}
+# "connectstats.app, new.connectstats.app" after. Caddy obtains and renews the
+# certificates itself (an ACME contact email is optional; add a global `email` if wanted).
 
 {$SITE_ADDRESSES} {
 	encode gzip

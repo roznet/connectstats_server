@@ -13,7 +13,6 @@ services:
       - "443:443/udp"
     environment:
       SITE_ADDRESSES: ${SITE_ADDRESSES:?set SITE_ADDRESSES}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
     volumes:
       - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates on the Volume, so a rebuild doesn't re-issue them (rate limits).
