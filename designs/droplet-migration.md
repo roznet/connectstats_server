@@ -234,7 +234,14 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 - [x] Known pre-existing data issue: emoji in activity names are stored with their JSON escapes stripped (`ud83d…` instead of `\ud83d…`) on prod
 - [x] **Found and fixed by the simulator: every signed request got 401 behind Caddy** (`de53e0a`). `Auth::get_request_url()` rebuilt the URL from `REQUEST_SCHEME` (`http` in the container) while the app signs the `https` URL. It now honours `X-Forwarded-Proto` (http/https only; it only selects which URL the signature is checked against). Same fix for the garmin-health file URLs in `shared.php`. `test.py smoke` over https through Caddy: 7/7 (it had passed before only because it ran over plain http inside Docker)
 - [x] Simulator against the test hostname (2026-11-01): login, stats, activity list, FIT downloads (read from the prod S3 bucket), bug report upload (zip on the Volume), Resend notification, protected list page. Found: Resend rejects the whole email when the reporter's address is invalid (`b@y`), which `mail()` never did; reply-to now only set when the address validates (`0c3829a`)
-- [ ] Not covered: push notifications (sandbox; would need a one-off send to the owner's device), S3 writes (sandbox), weather queries (sandbox), maintenance/cleanup jobs, `backup`/`sync` system endpoints, Garmin deregistration webhook
+- [x] Server checks on PHP 8.5 (2026-11-01):
+  - S3 with prod credentials on the dev bucket: put, get (content matches), list, bulk delete, object gone
+  - Visual Crossing: one query for a recent activity returned exactly the JSON prod stored for it (0.29 s)
+  - `runmaintenance.php` (25 s), `cleanup_inactive_users.php --dry-run` (~3 min), `cleanup_orphan_s3.php --dry-run`, `queuectl.php clean` on the test copy: all exit 0, no warnings/notices/fatals
+  - Garmin deregistration webhook: HTTP 200, token secret cleared; unsigned system call refused (401)
+  - **Found and fixed:** the three weather functions called `curl_error($ch)` with no `$ch` on a failed request: a TypeError on PHP 8 that would abort FIT extraction (`3b76cfb`)
+  - **`api/garmin/backup` returns 500 in Docker**: it shells out to `mysqldump` on localhost, which the image doesn't have. Only the archived secondary-server setup used it (and `connectstats/sync`); no call to either in the old box's logs since 2026-10-18. Left unsupported
+- [ ] Not covered: push notifications (sandbox; would need a one-off send to the owner's device)
 - [ ] Before cutover: remove `docker-compose.test.yml` from `COMPOSE_FILE` and `UPSTREAM`, `docker compose rm -sf db-test app-test worker-test`, optionally delete `test/` on the Volume
 
 ### Phase 6: Cutover
