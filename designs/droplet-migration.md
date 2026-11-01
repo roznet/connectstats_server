@@ -90,7 +90,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [x] `cleanup_orphan_s3.php`: bulk deletes plus `--max-seconds` (default 3 h; a full pass of ~29k user listings is ~75 min)
 - [x] `cleanup_inactive_users.php --skip-inactive --orphan-assets --limit=N` runs only the backlog. Tested 2026-11-01 on prod: 5 oldest orphans (two users inactive since 2023 or earlier, no fitfiles left) deleted from S3 and `assets`, verified gone
 - [x] Run the backlog (2026-11-01, 14:19–16:06 UTC, ~43k/min, no errors): 4,729,484 `assets` rows and 4,729,484 S3 files deleted. `assets` 7.32M → 2.58M rows, 0 orphans left; spot checks show S3 and `assets` agree
-- [ ] `OPTIMIZE TABLE assets` to reclaim the DB space (table still ~1 GB on disk until rebuilt)
+- [x] `OPTIMIZE TABLE assets` (2026-11-01, 14 s): 995 MB → 378 MB
 - [ ] Check CloudWatch on 2026-11-02/03: expect ~2.6M objects and ~310 GB
 - [ ] Weather (pending decision): delete Visual Crossing `"info":"No data available"` placeholders (~450k since Apr 2023) and error rows (~15k Dark Sky errors, ~3k `403`, ~1k `[]`). Dark Sky rows (587k, until 2023-04-01) are real data but large (~2.5 KB each)
 - [ ] Weather placeholders are 40–45% of new rows and each costs a Visual Crossing query: check whether fetching right after upload is too early
