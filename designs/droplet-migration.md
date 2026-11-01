@@ -246,13 +246,29 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 
 ### Phase 6: Cutover
 
-- [ ] Lower DNS TTL a day ahead
-- [ ] Before cutover, the new box's `worker` stays stopped (the replica is read-only; workers would only fail)
-- [ ] Old Apache reverse-proxies `/prod/api/` to the new box first: with the queue self-starting, any request the old box still handles would restart its workers. **Must keep OAuth signatures valid:** `ProxyPreserveHost On` (the signed URL includes the host) and `RequestHeader set X-Forwarded-Proto "https"`, proxying to `https://new.connectstats.app/` (or the new IP with that Host). Test with `test.py smoke --base-url https://connectstats.app/prod` right after switching
-- [ ] Then on the old box: `queuectl.php stop`, wait for running tasks to finish, disable the cron jobs; final rsync of `/var/www/bugs`. Unfinished tasks stay in `tasks` and replicate over
-- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's `SHOW BINARY LOG STATUS`), then `STOP REPLICA; RESET REPLICA ALL`, turn off `super_read_only`, mark the replicated `queues` rows as stopped (their PIDs belong to the old box), `docker compose up -d worker`; the unfinished tasks get picked up
-- [ ] Switch DNS. The proxy keeps covering clients and Garmin until it propagates
-- [ ] Keep the old droplet at least two weeks; rollback = reverse replication (new → old) or replay rows received on the new box, then DNS back
+State on 2026-11-01 evening: new box replicating (0 s behind) with `app`/`worker` stopped; Phase 5 test stack (`db-test`, `app-test`, `worker-test`) running and served on the test hostname; replica buffer pool temporarily 768 MB (set online; `compose.env` still says 1536M). Exact commands, scripts and host details: private ops note.
+
+**Prerequisites (before the cutover day)**
+
+- [ ] **Backups on the new box**: nightly `mysqldump --single-transaction` copied off the box (follow the main droplet's backup script), plus Volume snapshots. Droplet backups don't cover the Volume
+- [ ] **Cron on the new box**: port the old wrappers into the deployment crontab (`CRONTAB`, runs in `worker`), without the weekly `queuectl stop`. Alerts without local mail: healthchecks.io pings per job (needs a ping key from the owner); weekly report through Resend or dropped
+- [ ] **Static site content (not in any repo):** the old docroot also serves, besides `/prod`: `index.php` (redirect to the blog), `privacy/`, `support/`, `app-ios/`, `favicon*`, `etc/`, and **`apple-app-site-association`** at the root and in `.well-known/` (iOS universal links: must be served unchanged, `Content-Type: application/json`, no redirect). Copy them into the private repo and serve them on the new box (Caddy `file_server` for everything outside `/prod`, or a docroot mount). `/dev` is dropped (decision). awstats aliases: drop unless wanted. Check the last days of the old access log for any other path in use
+- [ ] **TLS for `connectstats.app` before DNS moves**: Caddy gets certificates with HTTP-01, which reaches whatever the name resolves to. Have the old Apache (port 80 vhost) proxy `/.well-known/acme-challenge/` to the new box, then add `connectstats.app` to `SITE_ADDRESSES` so Caddy obtains it in advance. The old box's own certificate (acme.sh) stays until it's retired
+- [ ] **DNS TTL** is 3600 s on the DigitalOcean nameservers: lower it to 300 a day ahead
+- [ ] Optional: release master to the old box's prod first (S3 signing fix, Resend support, PHP 8 fixes are all PHP 7.4-safe), following "Releasing and Testing Prod"
+- [ ] Remove the test stack: `docker-compose.test.yml` and `UPSTREAM`/`TEST_*` out of `compose.env`, `docker compose rm -sf db-test app-test worker-test`, delete `test/` on the Volume. Restart `db` so the buffer pool is back to 1536M (replication resumes by itself)
+- [ ] Final config: `'sandbox' => false` in the new box's `config.php` (keep `queue_autostart => false`); `SITE_ADDRESSES` = `connectstats.app` plus the test hostname
+
+**Cutover (short window, queue paused rather than stopped for clients)**
+
+- [ ] Start `app` on the new box (not `worker`): it can't write yet (replica is read-only), so do the proxy switch and promotion back to back
+- [ ] Old Apache reverse-proxies `/prod/` (API **and** bugreport) to the new box first: with the queue self-starting, any request the old box still handles would restart its workers. **Must keep OAuth signatures valid:** `ProxyPreserveHost On` (the signed URL includes the host) and `RequestHeader set X-Forwarded-Proto "https"`, proxying to the new box with that Host. Static content can stay served by the old box until DNS moves
+- [ ] On the old box: `queuectl.php stop`, wait for running tasks to finish, disable its cron jobs; final rsync of `/var/www/bugs` to the Volume. Unfinished tasks stay in `tasks` and replicate over
+- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's binlog position), then `STOP REPLICA; RESET REPLICA ALL`, `SET GLOBAL super_read_only = OFF, read_only = OFF`, mark the replicated `queues` rows as stopped (their PIDs belong to the old box: else `queuectl` tries `kill -9` on them, harmless but noisy), `docker compose up -d worker`; the unfinished tasks get picked up
+- [ ] Verify right away: `test.py smoke --base-url https://connectstats.app/prod` (through the old box's proxy), a webhook arriving and processed on the new box (`cache_activities.processed_ts`), the app from a device
+- [ ] Switch DNS to the new box. The proxy keeps covering clients and Garmin until it propagates
+- [ ] After DNS settled: remove `docker-compose.migration.yml` from `COMPOSE_FILE` (drops `replica.cnf`: no more read-only/replication filters) and `SOURCE_SSH*`, restart `db`; stop the tunnel. Drop the `repl`/`migrate` MySQL users on the old box and `~/.migration`
+- [ ] Keep the old droplet at least two weeks; rollback = reverse replication (new → old, the new box keeps binlogs 14 days) or replay rows received on the new box, then DNS back. Then destroy it (snapshot first)
 
 ## Releasing and Testing Prod
 
