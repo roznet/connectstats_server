@@ -13,6 +13,7 @@ services:
       - "443:443/udp"
     environment:
       SITE_ADDRESSES: ${SITE_ADDRESSES:?set SITE_ADDRESSES}
+      UPSTREAM: ${UPSTREAM:-app:80}
     volumes:
       - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       # Certificates on the Volume, so a rebuild doesn't re-issue them (rate limits).

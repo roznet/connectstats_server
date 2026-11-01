@@ -1,0 +1,65 @@
+# Test stack on the droplet (migration Phase 5): a separate MySQL with a copy of prod
+# (restored from the seed dump) plus app/worker in sandbox mode, while the real `db`
+# stays a read-only replica. Caddy serves it when UPSTREAM=app-test:80.
+# Enable by appending it to COMPOSE_FILE; remove before cutover.
+#
+#   TEST_DIR         holds config/ (config.php, config_bugreport.php pointing at db-test,
+#                    'sandbox' => true), mysql/, bugs/, state/, log/
+
+x-test-app: &test-app
+  image: connectstats-app:${IMAGE_TAG:-latest}
+  restart: unless-stopped
+  depends_on:
+    db-test:
+      condition: service_healthy
+  environment:
+    RESEND_API_KEY: ${RESEND_API_KEY:-}
+    RESEND_FROM: ${RESEND_FROM:-}
+    RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
+  volumes:
+    - ${TEST_DIR:?set TEST_DIR}/config:/etc/connectstats:ro
+    - ${TEST_DIR}/bugs:/var/www/bugs
+    - ${TEST_DIR}/state:/var/www/state
+    - ${TEST_DIR}/log:/var/www/log
+    - tmp-test:/var/www/tmp
+
+services:
+  db-test:
+    image: connectstats-db:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    user: "${APP_UID:-2000}:${APP_GID:-2000}"
+    command: --innodb-buffer-pool-size=${TEST_INNODB_BUFFER_POOL_SIZE:-384M} --server-id=3 --skip-log-bin
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      CS_DB_USER: ${CS_DB_USER}
+      CS_DB_PASSWORD: ${CS_DB_PASSWORD}
+      CS_DATABASES: ${CS_DATABASES}
+    volumes:
+      - ${TEST_DIR}/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  app-test:
+    <<: *test-app
+
+  worker-test:
+    <<: *test-app
+    user: www-data
+    init: true
+    entrypoint: ["/usr/local/bin/connectstats-worker"]
+    environment:
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-}
+      RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
+      # No scheduled jobs on the test stack.
+      CRONTAB: /etc/connectstats/no-crontab
+      QUEUE_CHECK_INTERVAL: "15"
+    stop_signal: SIGTERM
+    stop_grace_period: 60s
+
+volumes:
+  tmp-test:
