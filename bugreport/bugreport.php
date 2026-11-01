@@ -251,6 +251,11 @@ class BugReport
      */
     function send_email($to, $subject, $msg, $reply_to = NULL)
     {
+        // The reporter's address is typed by hand: an invalid one must not lose the notification
+        // (Resend rejects the whole email, 422). It is still in the message body.
+        if ($reply_to && !filter_var($reply_to, FILTER_VALIDATE_EMAIL)) {
+            $reply_to = NULL;
+        }
         $reply_to = $reply_to ?: ($this->default_reply_to ?? NULL);
         if ($this->resend_api_key) {
             $payload = array(
@@ -330,7 +335,7 @@ class BugReport
                 }
                 $subject = $this->application . " BugReport";
                 $reply_to = NULL;
-                if (strpos($row['email'], '@') === false) {
+                if (strpos($row['email'] ?? '', '@') === false) {
                     $subject = "$this->application Anonymous BugReport";
                 } else {
                     $reply_to = $row['email'];
