@@ -2433,7 +2433,13 @@ class GarminProcess {
 
         $query = sprintf( 'SELECT activity_id,file_id,userId,userAccessToken,startTimeInSeconds FROM activities WHERE NOT ISNULL(file_id) AND %s ORDER BY activities.ts DESC %s', $paging->activities_where(), $paging->activities_paging() );
         
-        $full_url = sprintf( '%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
+        // Scheme as the client saw it (TLS terminates at the proxy in Docker), see Auth::get_request_url()
+        $scheme = $_SERVER['REQUEST_SCHEME'] ?? 'http';
+        $forwarded = strtolower( $_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '' );
+        if( $forwarded === 'https' || $forwarded === 'http' ){
+            $scheme = $forwarded;
+        }
+        $full_url = sprintf( '%s://%s%s', $scheme, $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI'] );
 
         $url_info = parse_url( $full_url );
         $url_params = array();

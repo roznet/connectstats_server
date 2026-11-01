@@ -366,7 +366,15 @@ class Auth {
      * Get the full request URL from server variables
      */
     private function get_request_url() {
-        return sprintf('%s://%s%s', $_SERVER['REQUEST_SCHEME'], $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI']);
+        // Behind a TLS-terminating proxy (Caddy in Docker) Apache sees http; the client signed
+        // the https URL. Only selects which scheme the signature is checked against: a valid
+        // signature still needs the token secret, so a client-supplied header can't bypass it.
+        $scheme = $_SERVER['REQUEST_SCHEME'] ?? 'http';
+        $forwarded = strtolower($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '');
+        if ($forwarded === 'https' || $forwarded === 'http') {
+            $scheme = $forwarded;
+        }
+        return sprintf('%s://%s%s', $scheme, $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI']);
     }
 
     /**
