@@ -214,7 +214,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 
 **Files**
 
-- [ ] rsync `/var/www/bugs` to the Volume now, again just before cutover (only the delta)
+- [x] Bug report uploads (2026-11-01): only **2024 onward** on the new box (116 files, 471 MB of 3.9 GB; most is from 2021). The full old directory is archived once to the owner's backup storage. Just before cutover: copy the new files only (current year)
 - [ ] FIT files stay in S3, nothing to move
 
 ### Phase 5: Parallel test of the new droplet
@@ -242,7 +242,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
   - **Found and fixed:** the three weather functions called `curl_error($ch)` with no `$ch` on a failed request: a TypeError on PHP 8 that would abort FIT extraction (`3b76cfb`)
   - **`api/garmin/backup` returns 500 in Docker**: it shells out to `mysqldump` on localhost, which the image doesn't have. Only the archived secondary-server setup used it (and `connectstats/sync`); no call to either in the old box's logs since 2026-10-18. Left unsupported
 - [ ] Not covered: push notifications (sandbox; would need a one-off send to the owner's device)
-- [ ] Before cutover: remove `docker-compose.test.yml` from `COMPOSE_FILE` and `UPSTREAM`, `docker compose rm -sf db-test app-test worker-test`, optionally delete `test/` on the Volume
+- [x] Test stack removed 2026-11-01 (see Phase 6)
 
 ### Phase 6: Cutover
 
@@ -259,8 +259,8 @@ State on 2026-11-01 evening: new box replicating (0 s behind) with `app`/`worker
 - [x] **TLS for `connectstats.app`: obtained at the DNS switch, not before** (decided 2026-11-01). The old box serves no port 80 (firewalled; its acme.sh uses the DigitalOcean DNS API), so an HTTP-01 relay would mean opening it. Instead `connectstats.app` is added to `SITE_ADDRESSES` right after the A record changes (not earlier: failed validations would back off and count against rate limits). The 5-minute TTL hides the gap: clients still on the old box are proxied
 - [ ] **DNS TTL** is 3600 s on the DigitalOcean nameservers: lower it to 300 a day ahead, on **both the A and the AAAA record**. The new box has no IPv6 address: at cutover, delete the AAAA record when switching the A record, or IPv6 clients keep reaching the old box
 - [ ] Optional: release master to the old box's prod first (S3 signing fix, Resend support, PHP 8 fixes are all PHP 7.4-safe), following "Releasing and Testing Prod"
-- [ ] Remove the test stack: `docker-compose.test.yml` and `UPSTREAM`/`TEST_*` out of `compose.env`, `docker compose rm -sf db-test app-test worker-test`, delete `test/` on the Volume. Restart `db` so the buffer pool is back to 1536M (replication resumes by itself)
-- [ ] Final config: `'sandbox' => false` in the new box's `config.php` (keep `queue_autostart => false`). `SITE_ADDRESSES` stays the test hostname until the DNS switch
+- [x] Test stack removed (2026-11-01): `docker-compose.test.yml`, `UPSTREAM` and `TEST_*` out of `compose.env`, `db-test`/`app-test`/`worker-test` and their tmp volume removed, `test/` deleted (Volume 12 GB used, 36 GB free). `db` restarted: buffer pool 1536M, replication resumed by itself (0 s behind, still `super_read_only`). The test hostname's `/prod` returns 502 until `app` starts
+- [x] Final config (2026-11-01): `'sandbox' => false` (`queue_autostart => false` kept). Harmless before the cutover: `app` and `worker` are stopped. `SITE_ADDRESSES` stays the test hostname until the DNS switch
 
 **Cutover (short window, queue paused rather than stopped for clients)**
 
