@@ -8,6 +8,8 @@
 # - Runs scheduled jobs with supercronic from $CRONTAB, if the file exists.
 # - On SIGTERM (docker compose stop worker): asks workers to stop gracefully, then exits.
 set -u
+# Group-writable files on the Volume (host group dockerapp).
+umask 0002
 
 API_DIR=/var/www/html/prod/api
 CRONTAB="${CRONTAB:-/var/www/html/prod/docker/worker/crontab}"

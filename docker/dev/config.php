@@ -26,6 +26,7 @@ $api_config = array(
 
     'tmp' => '/var/www/tmp',
     'log' => '/var/www/log',
+    's3_cache_local' => '/var/www/tmp/s3_cache',
 
     // FIT files stored on local disk instead of S3.
     'save_to_s3_bucket' => 'localhost:/var/www/data/assets',

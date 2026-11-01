@@ -15,10 +15,13 @@ services:
     volumes:
       - .:/var/www/html/prod
       - ./docker/dev/mock:/var/www/html/mock:ro
+      # dev config stores FIT files on local disk ('localhost:/var/www/data/assets'); prod uses S3
+      - ${DATA_DIR}/assets:/var/www/data/assets
 
   worker:
     volumes:
       - .:/var/www/html/prod
+      - ${DATA_DIR}/assets:/var/www/data/assets
 
   tests:
     build:
@@ -27,6 +30,7 @@ services:
       target: test
     image: connectstats-test:latest
     profiles: ["tests"]
+    user: www-data
     depends_on:
       db:
         condition: service_healthy

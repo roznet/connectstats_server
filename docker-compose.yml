@@ -1,9 +1,11 @@
 # ConnectStats stack: app (Apache + mod_php), worker (queue + scheduled jobs), db (MySQL 8.4).
 #
 # Production shape: code is baked into the image; config and data come from the host.
-#   CONFIG_DIR  holds config.php and config_bugreport.php (secrets, never in the image)
-#   DATA_DIR    persistent data, on the droplet a DigitalOcean Volume (/mnt/connectstats_data)
-#   LOG_DIR     per-task logs, root disk is fine (15-day cleanup)
+#   CONFIG_DIR  config.php, config_bugreport.php, APNs .p8 key (secrets, never in the image)
+#   DATA_DIR    persistent data: mysql/, bugs/, state/  (droplet: /mnt/connectstats_data)
+#   LOG_DIR     per-task logs and cron logs, 15-day cleanup (droplet: on the Volume too)
+# All app processes and MySQL run as APP_UID:APP_GID (2000, host user/group dockerapp).
+# tmp (scratch + S3 read cache) is a named volume on the root disk: safe to lose.
 #
 # Local development: cp .env.sample .env, which also enables docker-compose.dev.yml
 # (live code, Garmin mock, test runner). See docker/README.md.
@@ -15,6 +17,9 @@ x-app: &app
     context: .
     dockerfile: docker/Dockerfile
     target: app
+    args:
+      APP_UID: ${APP_UID:-2000}
+      APP_GID: ${APP_GID:-2000}
   image: connectstats-app:${IMAGE_TAG:-latest}
   restart: unless-stopped
   depends_on:
@@ -24,9 +29,7 @@ x-app: &app
     # config.php + config_bugreport.php, found through PHP's include_path (docker/php/connectstats.ini)
     - ${CONFIG_DIR:?set CONFIG_DIR}:/etc/connectstats:ro
     - ${DATA_DIR:?set DATA_DIR}/bugs:/var/www/bugs
-    - ${DATA_DIR}/s3_cache_local:/var/www/s3_cache_local
     - ${DATA_DIR}/state:/var/www/state
-    - ${DATA_DIR}/assets:/var/www/data/assets
     - ${LOG_DIR:?set LOG_DIR}:/var/www/log
     - tmp:/var/www/tmp
 
@@ -35,6 +38,8 @@ services:
     build: docker/mysql
     image: connectstats-db:${IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Datadir owned by dockerapp on the host, like the rest of the Volume.
+    user: "${APP_UID:-2000}:${APP_GID:-2000}"
     command: --innodb-buffer-pool-size=${INNODB_BUFFER_POOL_SIZE:-256M}
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}

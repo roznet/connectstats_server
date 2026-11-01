@@ -14,9 +14,15 @@ Code lives at `/var/www/html/prod` and runtime dirs at `/var/www/{log,tmp,bugs,s
 
 Nothing secret is in the image. Compose takes three host paths from `.env`:
 
-- `CONFIG_DIR`: holds `config.php` and `config_bugreport.php`, mounted read-only at `/etc/connectstats`. PHP finds them through `include_path` (`docker/php/connectstats.ini`), which lists `/etc/connectstats` first.
-- `DATA_DIR`: persistent data (`mysql/`, `bugs/`, `s3_cache_local/`, `state/`, `assets/`). On the droplet, the DigitalOcean Volume.
-- `LOG_DIR`: per-task logs (about 35k files a day in prod, 15-day cleanup in `docker/worker/crontab`).
+- `CONFIG_DIR`: `config.php`, `config_bugreport.php` and the APNs key, mounted read-only at `/etc/connectstats`. PHP finds them through `include_path` (`docker/php/connectstats.ini`), which lists `/etc/connectstats` first.
+- `DATA_DIR`: persistent data (`mysql/`, `bugs/`, `state/`, plus `assets/` in dev only). On the droplet, the DigitalOcean Volume.
+- `LOG_DIR`: per-task logs and cron logs (about 35k files a day in prod, 15-day cleanup in `docker/worker/crontab`).
+
+tmp, including the S3 read cache (`s3_cache_local` → `/var/www/tmp/s3_cache`), is a named volume and safe to lose.
+
+### Users and permissions
+
+Every process that writes data runs as UID/GID 2000 (`APP_UID`/`APP_GID`): the image remaps `www-data`, and MySQL runs with `user: 2000:2000`. Only Apache's master process is root, so it can bind port 80. On the droplets, 2000 is the host user/group `dockerapp`, and brice is in that group. Apache and the worker use `umask 0002`, so files land group-writable and brice can manage them without sudo. The droplet layout is in `designs/droplet-migration.md` (Phase 3).
 
 Config options added for this setup (see `api/config.sample.php`): `queue_autostart`, `queue_count`, `sandbox`.
 

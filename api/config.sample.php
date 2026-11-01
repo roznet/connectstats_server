@@ -57,6 +57,8 @@ $api_config = array(
     'tmp' => 'tmp',
     // OPTIONAL Config for keeping log files
     'log' => 'log',
+    // OPTIONAL local read cache for S3 files (must exist). Docker: '/var/www/tmp/s3_cache'
+    //'s3_cache_local' => '/var/www/tmp/s3_cache',
 
     // OPTIONAL Key to the dark Sky Net API or other weather provider, so weather can be downloaded for
     // activities

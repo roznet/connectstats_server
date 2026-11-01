@@ -18,7 +18,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 | Consolidate onto main droplet (`flyfun.aero`)? | **No** | Main droplet: root disk 82% full (12 GB free), memory peaks 82%, load spikes to 22. ConnectStats DB alone doesn't fit |
 | Packaging | **Docker Compose**: `app` (php-apache), `worker` (same image, queue + cron jobs), `db` (MySQL 8.4) | PHP version pinned in the Dockerfile, independent of the OS. Same compose runs locally for tests. Security fixes come from rebuilding images, not `apt`, so this needs a routine |
 | Droplet size | **2 vCPU / 4 GB** (same CPU/RAM as today), smallest root disk that fits | Root disk only holds OS, Docker images and logs; data is on the Volume. See measurements below |
-| Data storage | **DigitalOcean Volume** mounted at `/mnt/connectstats_data` (same pattern as the main droplet's MySQL) | MySQL datadir, bug report uploads, `s3_cache_local`, `state`. Resizable online and cheap per GB, unlike the root disk (which needs a droplet resize). A future move is detach/attach. Not covered by droplet backups: needs its own backup (Phase 3) |
+| Data storage | **DigitalOcean Volume** mounted at `/mnt/connectstats_data` (same pattern as the main droplet's MySQL) | Config, MySQL datadir, bug report uploads, logs, `state` (layout in Phase 3). Resizable online and cheap per GB, unlike the root disk (which needs a droplet resize). A future move is detach/attach. Not covered by droplet backups: needs its own backup (Phase 3) |
 | Database sync | **Replication**: old MySQL 8.0 as source → new 8.4 as replica, seeded from one dump | No prod downtime to seed; cutover is seconds instead of a dump/restore freeze, so Garmin webhooks aren't lost. Fallback: dump/restore during a freeze if replication fails. See Phase 4 |
 | Region | _open_ | Today nyc1; main droplet is lon1. **Decide before creating the Volume**: a Volume only attaches to droplets in its own region. Replication works across regions either way |
 | Retention for active users | _open_ | 85% of DB is the full history (since 2019) of active users. Pruning it means a reinstalled app can't re-download old activities |
@@ -131,9 +131,23 @@ Local stack built 2026-11-01, see [docker/README.md](../docker/README.md). Confi
 
 - [x] `docker/Dockerfile`: `php:8.5-apache` with mod_php (keeps `apache_request_headers()['Authorization']`), `mysqli`, `zip`, rewrite/headers/remoteip, `AllowOverride All`, PHP CLI for the queue, zsh/jq/curl/procps, pinned `supercronic`. Target `test` adds Python for `setup/test.py`
 - [x] `docker-compose.yml`: `app`, `worker`, `db` (`docker/mysql/Dockerfile`: MySQL 8.4 with settings and init baked in). `docker-compose.dev.yml` adds live code, a Garmin user-id mock and the `tests` service
-- [ ] DigitalOcean Volume (region decided first), mounted at `/mnt/connectstats_data` via `/etc/fstab` with `nofail`. Layout: `mysql/` (datadir), `bugs/`, `s3_cache_local/`, `state/`. Start at ~50 GB and grow when needed
+- [ ] DigitalOcean Volume (region decided first), ext4, mounted at `/mnt/connectstats_data` via `/etc/fstab` by UUID with `nofail` (same as the main droplet's `/mnt/flyfun_data`). Start at ~50 GB and grow when needed
+- [ ] Host user/group `dockerapp` 2000:2000 (`nologin`), brice in the group (same convention as the main droplet). All containers run as 2000 (`www-data` is remapped in the image, MySQL runs with `user: 2000:2000`) with `umask 0002`, so everything on the Volume is `dockerapp`-owned and group-writable
+- [ ] Volume layout (all `dockerapp:dockerapp`):
+
+  | Path | Mounted at | Mode | Notes |
+  |---|---|---|---|
+  | `config/` | `/etc/connectstats` (ro) | `2770`, files `660` | `config.php`, `config_bugreport.php`, the APNs `.p8` key (set `apn_keyfile` to `/etc/connectstats/<key>.p8`), `compose.env` |
+  | `mysql/` | `/var/lib/mysql` | `750` | Never edited by hand: `docker compose exec db mysql` |
+  | `bugs/` | `/var/www/bugs` | `2775` | Bug report uploads (3.9 GB) |
+  | `log/` | `/var/www/log` | `2775` | Per-task logs (~35k files a day) and `cron/`; on the Volume so logs can't fill the root disk |
+  | `state/` | `/var/www/state` | `2775` | Cron stamps (48 KB) |
+  | `backups/` | (host only) | `2770` | Nightly dump staging before the off-box copy |
+
+  Not on the Volume: tmp and the S3 read cache (named Docker volume, safe to lose; config `tmp` → `/var/www/tmp`, `s3_cache_local` → `/var/www/tmp/s3_cache`), Docker images, the git checkout with the compose files (its `.env` is a symlink to `config/compose.env`). So a rebuild is: new droplet, attach Volume, clone, symlink `.env`, `docker compose up -d`
+- [ ] Setgid on the Volume dirs so files brice creates also land in group `dockerapp`
 - [x] Compose takes the path from `.env` (`DATA_DIR=/mnt/connectstats_data`, defaulting to `./data` locally) instead of hardcoding it, so the same file runs on a Mac
-- [x] Bind mounts: `${DATA_DIR}/mysql` → `/var/lib/mysql`, `${DATA_DIR}/bugs` → bug report uploads, etc. Logs and tmp stay on the root disk. Code and config come from git, secrets from `.env`
+- [x] Bind mounts from `DATA_DIR` / `LOG_DIR` / `CONFIG_DIR` as in the table above; tmp is a named volume. Code comes from the image, config and secrets from `CONFIG_DIR`
 - [x] MySQL settings in git (`docker/mysql/connectstats.cnf`; buffer pool from `INNODB_BUFFER_POOL_SIZE` in `.env`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
 - [x] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
 - [ ] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, plus Volume snapshots (scheduled, or before risky changes)

@@ -40,13 +40,23 @@ RUN case "${TARGETARCH:-amd64}" in \
 RUN a2enmod rewrite headers remoteip \
     && mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
+# Run as UID/GID 2000 (the droplets' `dockerapp` user/group, of which brice is a member)
+# so files on the Volume are owned by dockerapp on the host. umask 0002 keeps them
+# group-writable (Apache here, the worker in its entrypoint).
+ARG APP_UID=2000
+ARG APP_GID=2000
+RUN groupmod -g "${APP_GID}" www-data \
+    && usermod -u "${APP_UID}" -g "${APP_GID}" www-data \
+    && echo 'umask 0002' >> /etc/apache2/envvars
+
 COPY docker/apache/connectstats.conf /etc/apache2/sites-available/000-default.conf
 COPY docker/php/connectstats.ini "$PHP_INI_DIR/conf.d/zz-connectstats.ini"
 COPY docker/worker/entrypoint.sh /usr/local/bin/connectstats-worker
 RUN chmod +x /usr/local/bin/connectstats-worker
 
-# Writable runtime dirs (bind-mounted from the host/Volume in compose).
-RUN mkdir -p /var/www/log /var/www/tmp /var/www/bugs /var/www/state /var/www/data \
+# Writable runtime dirs (bind-mounted from the Volume in compose, except tmp which is a
+# named volume: scratch files and the S3 read cache, config 's3_cache_local' => '/var/www/tmp/s3_cache').
+RUN mkdir -p /var/www/log /var/www/tmp/s3_cache /var/www/bugs /var/www/state /var/www/data \
     && chown -R www-data:www-data /var/www/log /var/www/tmp /var/www/bugs /var/www/state /var/www/data
 
 # Code. config.php / config_bugreport.php are NOT in the image: mounted at runtime.
