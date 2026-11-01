@@ -27,7 +27,7 @@
 
 
 include_once( dirname( __DIR__, 1 ) ) . '/sql_helper.php';
-include( dirname( __DIR__ ) . '/config.php' );
+include( stream_resolve_include_path( 'config.php' ) ?: dirname( __DIR__ ) . '/config.php' );
 
 if( isset( $api_config['database_app'] ) ){
     $sql = new sql_helper($api_config, 'database_app' );

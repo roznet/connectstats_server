@@ -52,7 +52,7 @@ if( isset( $_GET['token_id'] ) ){
 
     $paging = new Paging( $_GET, $token_id, $process->sql );
 
-    if( isset( $_GET['activities_garmin_health'] ) && $_Get['activities_garmin_health'] == 1 ){
+    if( isset( $_GET['activities_garmin_health'] ) && $_GET['activities_garmin_health'] == 1 ){
         $process->query_activities_garmin_health_format( $paging );
     }else if( isset( $_GET['file_garmin_health'] ) && $_GET['file_garmin_health'] == 1 ){
         $process->query_file_garmin_health_format( $paging );

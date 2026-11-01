@@ -68,9 +68,12 @@ class sql_helper {
 		$this->db_username = $api_config['db_username'];
 		$this->db_password = $api_config['db_password'];;
 		
+		// PHP 8.1+ defaults to throwing mysqli_sql_exception. The code relies on failed
+		// queries returning false (and recording them via lasterror / error_* tables).
+		mysqli_report(MYSQLI_REPORT_OFF);
 		$this->connection = new mysqli($api_config['db_host'], $this->db_username, $this->db_password );
-		if( ! $this->connection ){
-			die( "Could not connect to the database: <br />".mysqli_error());
+		if( $this->connection->connect_errno ){
+			die( "Could not connect to the database: ".$this->connection->connect_error );
 		};
 		$this->fieldsInfo = NULL;
 		$this->tableInfo = NULL;

@@ -379,6 +379,24 @@ class GarminProcess {
         $this->auth->set_status($this->status);
     }
 
+    /**
+     *  'queue_autostart' (default true): when a task is added, also start missing queue
+     *  workers from this process. Set to false where a dedicated process owns the
+     *  workers (the Docker worker container), so web requests only add tasks.
+     */
+    function queue_autostart(){
+        return ! isset( $this->api_config['queue_autostart'] ) || $this->api_config['queue_autostart'];
+    }
+
+    /**
+     *  'sandbox' (default false): for environments running on a copy of real data.
+     *  Skips side effects outside the box: push notifications, weather queries,
+     *  S3 writes and deletes (S3 reads still work).
+     */
+    function sandbox(){
+        return isset( $this->api_config['sandbox'] ) && $this->api_config['sandbox'];
+    }
+
     function set_verbose($verbose){
         $this->verbose = $verbose;
         $this->auth->set_verbose($verbose);
@@ -943,7 +961,9 @@ class GarminProcess {
             if( $this->verbose ){
                 $this->log( 'QUEUE',  'Add task `%s`', $command );
             }
-            if( file_exists( '../queue/queuectl.php' ) ){
+            if( ! $this->queue_autostart() ){
+                // Workers are owned by a separate process (worker container); only add the task.
+            }else if( file_exists( '../queue/queuectl.php' ) ){
                 $file_lock = sprintf( '%s/start_check_lock', $this->maintenance_writable_path('log') );
                 if( ! file_exists( $file_lock ) || abs( time() - filemtime( $file_lock ) ) > 5 ){
                     $start_check_log = sprintf( '%s/start_check_queue.log', $this->maintenance_writable_path('log') );
@@ -967,7 +987,7 @@ class GarminProcess {
             if( $this->verbose ){
                 $this->log( 'RUN', $command );
             }
-            exec( sprintf( '%s > %s 2>&1 &', $command ) );
+            exec( sprintf( '%s > %s 2>&1 &', $command, $logfile ) );
         }
     }
     
@@ -1182,7 +1202,11 @@ class GarminProcess {
 
                 // We will only query weather for activities that were done less than 24h ago
                 // This is to avoid blast update during backfill
-                if( $lat != 0.0 && $lon != 0.0 &&
+                if( $this->sandbox() ){
+                    if( $this->verbose ){
+                        $this->log( 'SANDBOX', 'skipping weather query for file_id %s', $file_id );
+                    }
+                }else if( $lat != 0.0 && $lon != 0.0 &&
                     ! $this->ignore_time_threshold( intval($ts), 'ignore_fitextract_hours_threshold', NULL ) ) {
                     $weather = array();
                     if( isset( $this->api_config['darkSkyKey'] ) ){
@@ -1601,7 +1625,9 @@ class GarminProcess {
             }
         }else{
             $s3 = $this->s3();
-            if( $s3 ){
+            if( $this->sandbox() ){
+                $this->log( 'SANDBOX', 'skipping S3 write of %s', $path );
+            }else if( $s3 ){
                 $s3->putObject( $data, $bucket, $path );
             }
             $this->save_to_s3_cache_if_applicable($path, $data );
@@ -1658,6 +1684,11 @@ class GarminProcess {
                 }
             }
             return $failed;
+        }
+        if( $this->sandbox() ){
+            // Report failure so callers keep the DB rows that point at these objects.
+            $this->log( 'SANDBOX', 'skipping S3 delete of %d objects', count( $paths ) );
+            return false;
         }
         $s3 = $this->s3();
         if( !$s3 ){
@@ -2576,6 +2607,10 @@ class GarminProcess {
      */
     function notification_push_to_device($device_token, $message, $cs_user_id)
     {
+        if( $this->sandbox() ){
+            $this->log( 'SANDBOX', 'skipping push notification to %s for user %s', $device_token, $cs_user_id );
+            return false;
+        }
         foreach( array('apn_keyfile', 'apn_keyid', 'apn_teamid', 'apn_bundleid', 'apn_url' ) as $key ){
             if( ! isset( $this->api_config[$key] ) ){
                 if( $this->verbose ){

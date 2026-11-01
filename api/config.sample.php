@@ -87,6 +87,17 @@ $api_config = array(
     'ignore_fitextract_hours_threshold' => 24*5,
     // OPTIONAL a date to ignore any activities before that date in any processing
     //'ignore_activities_date_threshold' => 1575158293,
+
+    // OPTIONAL (default true): when a task is queued, also start missing queue workers
+    // from the current process. Set to false when a separate process owns the workers
+    // (the Docker `worker` container), so web requests only add tasks.
+    //'queue_autostart' => false,
+    // OPTIONAL number of queue workers (default 5)
+    //'queue_count' => 5,
+
+    // OPTIONAL (default false): for test boxes running on a copy of real data.
+    // Skips push notifications, weather queries and S3 writes/deletes (S3 reads still work).
+    //'sandbox' => true,
     
 );
 ?>

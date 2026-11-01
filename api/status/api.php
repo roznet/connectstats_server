@@ -28,7 +28,7 @@
  *      a redirect means a different url should be used
  */
 
-include( '../config.php' );
+include( stream_resolve_include_path( 'config.php' ) ?: dirname( __DIR__ ) . '/config.php' );
 header('Content-Type: application/json');
 $status = array(
     'status' => 1,

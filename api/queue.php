@@ -78,7 +78,8 @@ class Queue {
         if( $input ){
             $api_config = $input;
         }else{
-            $configs = [  __DIR__.'/config.php', is_readable( dirname( __DIR__ ).'/config.php' ) ];
+            // include_path first (Docker mounts config in /etc/connectstats), then next to this file.
+            $configs = array_filter( [ stream_resolve_include_path( 'config.php' ), __DIR__.'/config.php', dirname( __DIR__ ).'/config.php' ] );
             $found = NULL;
             foreach( $configs as $config ){
                 if( is_readable( $config ) ){
