@@ -12,9 +12,11 @@ $bug_config = array(
     // OPTIONAL email notification of new reports
     //'email_bug_to' => '***',
     // OPTIONAL send through the Resend HTTP API instead of PHP mail() (needed in Docker).
-    // The email_from domain must be verified in Resend.
+    // The email_from domain must be verified in Resend. Each falls back to the
+    // environment: RESEND_API_KEY, RESEND_FROM, RESEND_REPLY_TO (Docker: the compose .env).
     //'resend_api_key' => '***',
     //'email_from' => 'ConnectStats <bugreport@connectstats.app>',
+    //'email_reply_to' => '***',
 
 );
 ?>

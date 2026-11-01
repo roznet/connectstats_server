@@ -16,9 +16,12 @@ class BugReport
             $this->email_bug_to = NULL;
         }
         // Optional: send through the Resend HTTP API (no local MTA needed, e.g. in Docker).
+        // Config keys win, then the environment (RESEND_* in the compose .env).
         // Without a key, PHP mail() is used as before.
-        $this->resend_api_key = $bug_config['resend_api_key'] ?? NULL;
-        $this->email_from = $bug_config['email_from'] ?? 'ConnectStats <bugreport@connectstats.app>';
+        $this->resend_api_key = $bug_config['resend_api_key'] ?? (getenv('RESEND_API_KEY') ?: NULL);
+        $this->email_from = $bug_config['email_from'] ?? (getenv('RESEND_FROM') ?: 'ConnectStats <bugreport@connectstats.app>');
+        // Used when the reporter left no email address.
+        $this->default_reply_to = $bug_config['email_reply_to'] ?? (getenv('RESEND_REPLY_TO') ?: NULL);
 
         $this->debug = isset($_GET['debug']);
         if ($this->debug) {
@@ -248,6 +251,7 @@ class BugReport
      */
     function send_email($to, $subject, $msg, $reply_to = NULL)
     {
+        $reply_to = $reply_to ?: ($this->default_reply_to ?? NULL);
         if ($this->resend_api_key) {
             $payload = array(
                 'from' => $this->email_from,

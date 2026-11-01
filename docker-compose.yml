@@ -12,7 +12,15 @@
 
 name: connectstats
 
+# Outgoing email (bug report notifications) through the Resend HTTP API.
+x-email-env: &email-env
+  RESEND_API_KEY: ${RESEND_API_KEY:-}
+  RESEND_FROM: ${RESEND_FROM:-}
+  RESEND_REPLY_TO: ${RESEND_REPLY_TO:-}
+
 x-app: &app
+  environment:
+    <<: *email-env
   build:
     context: .
     dockerfile: docker/Dockerfile
@@ -67,6 +75,7 @@ services:
     init: true
     entrypoint: ["/usr/local/bin/connectstats-worker"]
     environment:
+      <<: *email-env
       CRONTAB: ${CRONTAB:-/var/www/html/prod/docker/worker/crontab}
       QUEUE_CHECK_INTERVAL: ${QUEUE_CHECK_INTERVAL:-60}
     # The php:apache base image sets STOPSIGNAL SIGWINCH (Apache graceful stop); the
