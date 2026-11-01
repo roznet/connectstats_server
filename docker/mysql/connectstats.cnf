@@ -10,6 +10,9 @@ innodb_redo_log_capacity = 536870912
 server_id = 2
 log_bin = binlog
 binlog_expire_logs_seconds = 1209600
+# Old box writes ~0.3 GB of binlog a day (9.4 GB over 30 days, 2026-11-01); zstd
+# compression cuts that a few times over, and replicas read compressed binlogs.
+binlog_transaction_compression = ON
 
 character-set-server = utf8mb4
 collation-server = utf8mb4_0900_ai_ci
