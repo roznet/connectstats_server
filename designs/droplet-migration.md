@@ -194,13 +194,17 @@ Plan:
 
 Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 days, `server_id=1`, GTID off (so file/position replication). All tables InnoDB except one MyISAM table in `connectstats`. The app's MySQL user has no `RELOAD` / `REPLICATION` privileges: the seed dump and the replication user need MySQL root on the old box.
 
-- [ ] Prune first (Phase 1) so the seed is smaller
-- [ ] On the old box (as MySQL root): create a replication user (`REPLICATION SLAVE` only, `caching_sha2_password`, limited to the new box's IP)
-- [ ] Seed: `mysqldump --single-transaction --source-data=2 --routines --triggers --hex-blob --databases garmin queue connectstats garmin_dev`, compressed and streamed to the new box's Volume. `--single-transaction` reads a consistent InnoDB snapshot without blocking writes; `--source-data` takes a global read lock only for the instant it records the binlog position (it waits for running queries, so avoid cron windows). The MyISAM table isn't in the snapshot, but it's tiny and replication brings it up to date
-- [ ] Restore into MySQL 8.4 and time it (this is the fallback's freeze length). Check charset (`SET NAMES 'utf8'` → utf8mb3 warnings) and collations
-- [ ] Start replication from the binlog position in the dump header (`CHANGE REPLICATION SOURCE TO ... SOURCE_LOG_FILE, SOURCE_LOG_POS, SOURCE_SSL=1`, or over an SSH tunnel). Open 3306 on the old box only to the new box's IP. Must start within the 30-day binlog retention
-- [ ] Keep the replica `super_read_only` until cutover. Watch `SHOW REPLICA STATUS` (`Seconds_Behind_Source`, errors)
-- [ ] If replication breaks (e.g. 8.0 → 8.4 incompatibility), re-seed or fall back to dump/restore during a freeze
+**Done 2026-11-01** (scripts and exact commands in the private ops repo):
+
+- [x] Prune first (Phase 1): `garmin` went from 13.1 GB to 8.8 GB before the seed
+- [x] On the old box (as MySQL root): `repl@127.0.0.1` (`REPLICATION SLAVE` only) and `migrate@localhost` (dump: `RELOAD`, `REPLICATION CLIENT`, `SELECT`/`SHOW VIEW`/`LOCK TABLES` on the three databases). **Replication passwords are limited to 32 characters** (error 3056 on `CHANGE REPLICATION SOURCE`)
+- [x] Seed: `mysqldump --single-transaction --source-data=2 --quick --hex-blob --no-tablespaces --set-gtid-purged=OFF --databases garmin queue connectstats` (no routines/triggers/events/views exist; `garmin_dev` not migrated), `gzip -1` on the old box, streamed over SSH from the new box: 1.7 GB in 145 s. Prod unaffected
+- [x] Restore into MySQL 8.4 with `sql_log_bin=0` after stopping `app`/`worker` and dropping the empty databases: 567 s (≈ the fallback's freeze length). `garmin` 7.9 GB after rebuild. No charset or collation errors
+- [x] Replication from the dump's coordinates through an SSH tunnel (`docker-compose.migration.yml`: autossh container to the old box's `127.0.0.1:3306`, so its MySQL stays bound to localhost and 3306 stays closed). Caught up 20:10:51 UTC, 0 s behind, `Replicate_Do_DB: garmin,queue,connectstats`
+- [x] Replica `super_read_only` (`docker/mysql/replica.cnf`); `app` and `worker` stay stopped until cutover (the test hostname returns an error meanwhile)
+- [x] Verified: for 22 tables with an integer PK, `COUNT(*) WHERE pk <= old max` identical on both boxes; `gc_bugreports` (MyISAM) identical too
+- [ ] Watch `SHOW REPLICA STATUS` periodically until cutover; if replication breaks, re-seed (≈ 15 min) or fall back to dump/restore during a freeze
+- [ ] Gotchas hit: a script with `pipefail` + `set -e` exits silently on `zcat | head` (SIGPIPE); `docker compose exec -T` in a `while read` loop swallows the loop's stdin (use `< /dev/null`)
 
 **Files**
 
