@@ -2096,7 +2096,10 @@ class S3
 		$amzRequests[] = $method;
 		$uriQmPos = strpos($uri, '?'); 
 		$amzRequests[] = ($uriQmPos === false ? $uri : substr($uri, 0, $uriQmPos));
-		$amzRequests[] = http_build_query($parameters);
+		// SigV4 canonical query string: sorted by key, RFC 3986 encoding. Unsorted
+		// parameters broke every multi-parameter request (getBucket: prefix + max-keys).
+		ksort($parameters, SORT_STRING);
+		$amzRequests[] = http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
 		// add header as string to requests
 		foreach ( $amzHeaders as $k => $v ) {
 			$amzRequests[] = $k . ':' . $v;
