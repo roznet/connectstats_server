@@ -93,6 +93,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [ ] Trim `queue.tasks` (1.6M rows), review `usage_summary` (137 MB), `notifications` (104 MB)
 - [ ] Decide retention and Garmin deregistration (see Decisions)
 - [ ] Consider adding `cs_user_id` indexes to `fitfiles`, `weather`, `fitsession` (schema v9) on the new stack
+- [ ] Investigate `file.php` failures: 170–460 requests a day get `status=1` in the `usage` table (2,421 of ~26.7k in the week to 2026-11-01, predating the cleanup deploy). Likely files that no longer exist
 
 ### Phase 2: Code on PHP 8
 
@@ -160,4 +161,4 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 
 - **2026-10-22**: PHP 8 evaluation written up ([php-upgrade](php-upgrade.md), branch `claude/php-upgrade-plan`)
 - **2026-10-25**: Committed missing `Auth.php`, dev droplet fixed
-- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users
+- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served)
