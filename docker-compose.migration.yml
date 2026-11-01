@@ -1,0 +1,22 @@
+# Migration overlay: the new box's MySQL replicates from the old droplet.
+# Enable by appending it to COMPOSE_FILE in .env:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml:docker-compose.migration.yml
+# and remove it at cutover (see designs/droplet-migration.md, Phases 4 and 6).
+# app and worker must stay stopped while it's on: the database is a read-only replica.
+
+services:
+  db:
+    volumes:
+      - ./docker/mysql/replica.cnf:/etc/mysql/conf.d/zz-replica.cnf:ro
+
+  source-tunnel:
+    build: docker/migration
+    image: connectstats-tunnel:latest
+    restart: unless-stopped
+    environment:
+      # user@host of the old droplet (SSH as that user, key below)
+      SOURCE_SSH: ${SOURCE_SSH:?set SOURCE_SSH}
+    volumes:
+      # The host user's key and known_hosts (with the old droplet's host key pinned).
+      - ${SOURCE_SSH_KEY:?set SOURCE_SSH_KEY}:/ssh/id_ed25519:ro
+      - ${SOURCE_SSH_KNOWN_HOSTS:?set SOURCE_SSH_KNOWN_HOSTS}:/ssh/known_hosts:ro

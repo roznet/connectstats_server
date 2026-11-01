@@ -1,0 +1,12 @@
+# Replica settings while the new box follows the old one (docker-compose.migration.yml).
+# Removed at cutover, together with the overlay.
+[mysqld]
+# Nothing but the replication thread writes until cutover.
+read_only = ON
+super_read_only = ON
+# Only the production databases (not garmin_dev, not the mysql system schema).
+replicate-do-db = garmin
+replicate-do-db = queue
+replicate-do-db = connectstats
+# Keep the replica's own binlog of applied changes, for a reverse replication (rollback).
+log_replica_updates = ON
