@@ -15,6 +15,10 @@ class BugReport
         } else {
             $this->email_bug_to = NULL;
         }
+        // Optional: send through the Resend HTTP API (no local MTA needed, e.g. in Docker).
+        // Without a key, PHP mail() is used as before.
+        $this->resend_api_key = $bug_config['resend_api_key'] ?? NULL;
+        $this->email_from = $bug_config['email_from'] ?? 'ConnectStats <bugreport@connectstats.app>';
 
         $this->debug = isset($_GET['debug']);
         if ($this->debug) {
@@ -237,6 +241,50 @@ class BugReport
         return (isset($this->row['email']) && strpos($this->row['email'], '@') !== false);
     }
 
+    /**
+     * Send a plain-text email. Uses the Resend HTTP API when 'resend_api_key' is
+     * configured (the 'email_from' domain must be verified in Resend), otherwise mail().
+     * Returns true on success.
+     */
+    function send_email($to, $subject, $msg, $reply_to = NULL)
+    {
+        if ($this->resend_api_key) {
+            $payload = array(
+                'from' => $this->email_from,
+                'to' => array_map('trim', explode(',', $to)),
+                'subject' => $subject,
+                'text' => $msg,
+            );
+            if ($reply_to) {
+                $payload['reply_to'] = $reply_to;
+            }
+            $ch = curl_init('https://api.resend.com/emails');
+            curl_setopt_array($ch, array(
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => array(
+                    'Authorization: Bearer ' . $this->resend_api_key,
+                    'Content-Type: application/json',
+                ),
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 20,
+            ));
+            $response = curl_exec($ch);
+            $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($status < 200 || $status >= 300) {
+                error_log(sprintf('bugreport: Resend failed (HTTP %d): %s', $status, $response === false ? curl_error($ch) : $response));
+                return false;
+            }
+            return true;
+        }
+
+        $headers = 'From: ' . $this->email_from . "\r\n";
+        if ($reply_to) {
+            $headers .= 'Reply-To: ' . $reply_to . "\r\n";
+        }
+        return mail($to, $subject, $msg, $headers);
+    }
+
     function send_email_if_necesssary()
     {
         // Report/email control
@@ -277,16 +325,16 @@ class BugReport
                     $msg .= sprintf("File Failed to save %s" . PHP_EOL, $row['filename']);
                 }
                 $subject = $this->application . " BugReport";
-                $headers = 'From: ConnectStats <bugreport@connectstats.app>' . "\r\n";
+                $reply_to = NULL;
                 if (strpos($row['email'], '@') === false) {
                     $subject = "$this->application Anonymous BugReport";
                 } else {
-                    $headers .= 'Reply-To: ' . $row['email'] . "\r\n";
+                    $reply_to = $row['email'];
                 }
                 $listurl = sprintf('https://%s/%s', $_SERVER['HTTP_HOST'], str_replace('bugreport/new', 'bugreport/list', $_SERVER['REQUEST_URI']));
                 $msg .= sprintf('Bug report: %s', $listurl, PHP_EOL);
                 if ($this->email_bug_to) {
-                    if (!mail($this->email_bug_to, $subject, $msg, $headers)) {
+                    if (!$this->send_email($this->email_bug_to, $subject, $msg, $reply_to)) {
                         print('<p>Failed to email!, please go to the <a href="https://ro-z.net">web site</a> or twitter <a href="https://twitter.com/connectstats">@connectstats</a> to report</p>' . PHP_EOL);
                     } else {
                         print('<h3>Email sent!</h3>');
