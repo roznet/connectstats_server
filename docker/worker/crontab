@@ -1,0 +1,10 @@
+# Scheduled jobs for the worker container (supercronic, runs as www-data, UTC).
+# This default only has jobs that are safe on any environment.
+# On the droplet, point CRONTAB at the deployment's own crontab, which also runs
+# the cleanup/maintenance wrapper scripts and the status check.
+
+# Daily: drop queue tasks and queue rows older than 45 days.
+17 3 * * *  cd /var/www/html/prod/api/queue && php queuectl.php clean
+
+# Daily: remove old per-task logs and tmp files (same retention as the old droplet).
+27 3 * * *  find /var/www/log -type f -mtime +15 -delete; find /var/www/tmp -type f -mtime +3 -delete

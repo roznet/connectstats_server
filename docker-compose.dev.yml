@@ -1,0 +1,42 @@
+# Local development overlay (enabled by COMPOSE_FILE in .env.sample).
+# - Live code: the repo is bind-mounted over the baked-in copy.
+# - Mock of Garmin's user id endpoint at http://app/mock/garmin/user_id.php.
+# - MySQL reachable from the Mac on 127.0.0.1:${DB_PORT}.
+# - `tests` runs setup/test.py inside the stack:
+#     docker compose run --rm tests full        (destructive, local DB only)
+#     docker compose run --rm tests all
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-3307}:3306"
+
+  app:
+    volumes:
+      - .:/var/www/html/prod
+      - ./docker/dev/mock:/var/www/html/mock:ro
+
+  worker:
+    volumes:
+      - .:/var/www/html/prod
+
+  tests:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: test
+    image: connectstats-test:latest
+    profiles: ["tests"]
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+    volumes:
+      - .:/var/www/html/prod
+      - ${CONFIG_DIR}:/etc/connectstats:ro
+      - ${LOG_DIR}:/var/www/log
+      - ${DATA_DIR}/assets:/var/www/data/assets
+    working_dir: /var/www/html/prod/setup
+    entrypoint: ["python3", "test.py", "--config", "/etc/connectstats/config.php", "--base-url", "http://app/prod"]
+    command: ["all"]

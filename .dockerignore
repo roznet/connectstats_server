@@ -1,0 +1,13 @@
+.git
+.claude
+.env
+data
+**/config.php
+**/config_bugreport.php
+**/log
+**/logs
+**/tmp
+**/nohup.out
+**/__pycache__
+**/*.pyc
+.DS_Store

@@ -169,13 +169,12 @@ $queue = new Queue($api_config);
 $queue->run($queue_id); // Loops infinitely, processing tasks
 ```
 
-### Cron Setup
+### Who Starts the Workers
 
-```bash
-# Example: Start N queue processors on boot (where N is $queue_count in config)
-# And ensure they are running by running queuectl.php start every minute
-# * * * * * cd /var/www/html/api && php queue/queuectl.php start >> /var/log/queue.log 2>&1
-```
+- **Autostart (default, old droplet):** `GarminProcess::exec()` adds the task and then, at most every 5 s, runs `queuectl.php start` in the background. The workers end up as children of the Apache process that handled the request. No cron entry is needed.
+- **Dedicated owner (`'queue_autostart' => false`, Docker):** web requests only add tasks. The `worker` container runs `queuectl.php start` every `QUEUE_CHECK_INTERVAL` seconds and, on SIGTERM, runs `queuectl.php stop` and waits for the workers to exit (see `docker/worker/entrypoint.sh`).
+
+Liveness is checked with `ps ax` against `queues.queue_pid`, so `queuectl.php` has to run in the same PID namespace (container) as the workers.
 
 ## Task Lifecycle
 

@@ -10,6 +10,16 @@ Provide confidence when making code changes. Two modes address different scenari
 
 ## Running Tests
 
+The simplest setup is the local Docker stack (PHP 8.5 + MySQL 8.4, see `docker/README.md`). It has a dedicated database with the `dev` marker, a Garmin user-id mock and the queue worker:
+
+```bash
+cp .env.sample .env && docker compose up -d --wait
+docker compose run --rm tests full     # destructive, local DB only
+docker compose run --rm tests all
+```
+
+Without Docker:
+
 ```bash
 # Activate the venv
 source ~/.venv/dev/bin/activate

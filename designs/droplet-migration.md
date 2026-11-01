@@ -120,19 +120,22 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 
 See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_REPORT_OFF)` in `sql_helper.php`, otherwise Garmin webhooks return 500 on PHP 8.1+.
 
-- [ ] P0 fixes, run `setup/test.py` on PHP 8.x locally (in the Docker image once Phase 3 exists)
+- [x] P0 fixes (`mysqli_report`, `connect_error`, `sprintf` arg, `$_GET` typo). `setup/test.py full` 55/55 and `all` 51/51 on PHP 8.5.12 + MySQL 8.4.13 in the local compose stack (2026-11-01)
 - [ ] P1 deprecations (dynamic properties, `strftime`, vendored `S3.php` / `phpFITFileAnalysis.php`)
 
 ### Phase 3: Docker
 
-- [ ] `Dockerfile`: `php:8.x-apache` + `mysqli`, `curl`, `zip`, `mbstring`; `a2enmod rewrite`; `AllowOverride All` (the `.htaccess` maps `/foo` → `foo.php`). Keep mod_php so `apache_request_headers()['Authorization']` keeps working (php-fpm needs `CGIPassAuth On`)
-- [ ] `docker-compose.yml`: `app`, `worker` (queue workers started via `exec('php ...')`, plus cron jobs), `db` (MySQL 8.4)
+Local stack built 2026-11-01, see [docker/README.md](../docker/README.md). Config comes from `CONFIG_DIR` mounted at `/etc/connectstats` (first in PHP's `include_path`), data from `DATA_DIR`, logs from `LOG_DIR`.
+
+- [x] `docker/Dockerfile`: `php:8.5-apache` with mod_php (keeps `apache_request_headers()['Authorization']`), `mysqli`, `zip`, rewrite/headers/remoteip, `AllowOverride All`, PHP CLI for the queue, zsh/jq/curl/procps, pinned `supercronic`. Target `test` adds Python for `setup/test.py`
+- [x] `docker-compose.yml`: `app`, `worker`, `db` (`docker/mysql/Dockerfile`: MySQL 8.4 with settings and init baked in). `docker-compose.dev.yml` adds live code, a Garmin user-id mock and the `tests` service
 - [ ] DigitalOcean Volume (region decided first), mounted at `/mnt/connectstats_data` via `/etc/fstab` with `nofail`. Layout: `mysql/` (datadir), `bugs/`, `s3_cache_local/`, `state/`. Start at ~50 GB and grow when needed
-- [ ] Compose takes the path from `.env` (`DATA_DIR=/mnt/connectstats_data`, defaulting to `./data` locally) instead of hardcoding it, so the same file runs on a Mac
-- [ ] Bind mounts: `${DATA_DIR}/mysql` → `/var/lib/mysql`, `${DATA_DIR}/bugs` → bug report uploads, etc. Logs and tmp stay on the root disk. Code and config come from git, secrets from `.env`
-- [ ] MySQL settings in git (compose `command:` or a mounted `my.cnf`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
-- [ ] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
+- [x] Compose takes the path from `.env` (`DATA_DIR=/mnt/connectstats_data`, defaulting to `./data` locally) instead of hardcoding it, so the same file runs on a Mac
+- [x] Bind mounts: `${DATA_DIR}/mysql` → `/var/lib/mysql`, `${DATA_DIR}/bugs` → bug report uploads, etc. Logs and tmp stay on the root disk. Code and config come from git, secrets from `.env`
+- [x] MySQL settings in git (`docker/mysql/connectstats.cnf`; buffer pool from `INNODB_BUFFER_POOL_SIZE` in `.env`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
+- [x] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
 - [ ] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, plus Volume snapshots (scheduled, or before risky changes)
+
 **Queue and jobs.** How it works today (see [queue-system](queue-system.md)):
 
 - The queue starts itself: every `GarminProcess::exec()` adds a task, then (at most every 5 s) runs `queuectl.php start` in the background. That spawns any missing `nohup php runqueue.php N &` workers (`queue_count`, default 5). No cron entry starts the queue, so **the workers are children of whichever Apache process handled the request**.
@@ -143,15 +146,17 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 
 Plan:
 
-- [ ] Add a config flag (e.g. `queue_autostart => false`) so web requests only add tasks and never spawn workers. On the new box, `app` (Apache) serves requests and `worker` owns all workers
-- [ ] `worker` container: same image, entrypoint runs `queuectl.php start` every minute (supervisor loop) plus `supercronic` with a crontab kept in git. `queuectl` and the workers share a PID namespace, so liveness checks work. Deploying `app` no longer kills running tasks; `docker compose stop worker` cleanly stops all processing (needed at cutover)
-- [ ] Keep the same paths in the image (`/var/www/html/prod/api`, `/var/www/log`, …) so `task_cwd` values in rows replicated from the old box still resolve
+- [x] Add a config flag (`queue_autostart => false`) so web requests only add tasks and never spawn workers. On the new box, `app` (Apache) serves requests and `worker` owns all workers
+- [x] `worker` container: same image, entrypoint runs `queuectl.php start` every minute (supervisor loop) plus `supercronic` with a crontab kept in git. `queuectl` and the workers share a PID namespace, so liveness checks work. Deploying `app` no longer kills running tasks; `docker compose stop worker` cleanly stops all processing (needed at cutover)
+- [x] Keep the same paths in the image (`/var/www/html/prod/api`, `/var/www/log`, …) so `task_cwd` values in rows replicated from the old box still resolve
 - [ ] Logs: `/var/www/log` on the root disk with the 15-day cleanup, or reduce per-task logging (35k files a day)
-- [ ] Worker image needs `zsh`, `curl`, `jq`, `python3` for the wrapper scripts, or rewrite the few that need them. Port `/var/www/bin/*.zsh` to run inside `worker`
-- [ ] Same `www-data` uid in `app` and `worker` so both can write the bind-mounted dirs
+- [ ] Worker image has `zsh`, `curl`, `jq`; still needs `python3` for `weekly_report.py` and the status check's `query.py` (or rewrite those two). Port `/var/www/bin/*.zsh` into the deployment's crontab (`CRONTAB`); the repo's `docker/worker/crontab` only has queue clean + log/tmp cleanup
+- [x] Same `www-data` uid in `app` and `worker` so both can write the bind-mounted dirs
+- [x] `sandbox` config flag: skips push notifications, weather queries, S3 writes and deletes (checked in the worker container 2026-11-01)
+- [x] Graceful `docker compose stop worker`: workers finish the current task and end `dead:stopped` (~2 s). Needs `stop_signal: SIGTERM` because the base image sets `STOPSIGNAL SIGWINCH`
 - [ ] TLS: Caddy in front (as on the main droplet) or certbot; today it's acme.sh in brice's crontab
 - [ ] Image update routine (rebuild/pull for PHP and MySQL security fixes)
-- [ ] Same compose locally for the test suite
+- [x] Same compose locally for the test suite (`docker compose run --rm tests full`)
 
 ### Phase 4: Data migration
 
@@ -176,7 +181,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 ### Phase 5: Parallel test of the new droplet
 
 - [ ] Bring it up under a test hostname. **Don't write to the replica**: test against a separate restored copy (another schema on the new MySQL, or a second `db` container from the same seed dump), or accept re-seeding the replica afterwards
-- [ ] **A test box with real prod data and a running queue has real side effects**: push notifications to real users, Garmin callback downloads, paid Visual Crossing queries, S3 writes. Today there's no config switch for this. Add a sandbox flag (no APNs, no weather, no S3 writes) or block egress, and keep the test copy's queue disabled except for deliberate tests
+- [ ] **A test box with real prod data and a running queue has real side effects**: push notifications to real users, Garmin callback downloads, paid Visual Crossing queries, S3 writes. Set `'sandbox' => true` in the test box's config (no APNs, no weather, no S3 writes/deletes; Garmin callback downloads still happen), and keep the test copy's queue disabled except for deliberate tests
 - [ ] `setup/test.py all` (non-destructive) against it; `full` against a dev DB
 - [ ] Real device: login, sync, FIT download, notifications, bug report upload
 - [ ] Manual checks not covered by tests: APNs, S3 upload, weather fetch, `sync`/`backup` system-auth endpoints, maintenance and cleanup jobs

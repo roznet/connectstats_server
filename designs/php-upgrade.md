@@ -1,5 +1,7 @@
 # PHP 8.5 / Ubuntu 26.04 Upgrade
 
+> **Status (2026-11-01):** the server build moved to Docker ([droplet-migration](droplet-migration.md), [docker/README.md](../docker/README.md)): the "Server build" tasks below are superseded, the code findings still apply. P0 code fixes are done and the test suite passes on PHP 8.5.12 + MySQL 8.4.13.
+
 > Move production from Ubuntu 20.04 + PHP 7.4 (Ubuntu Pro ESM) to a new droplet on Ubuntu 26.04 LTS + PHP 8.5 + MySQL 8.4.
 
 ## Intent
@@ -46,9 +48,9 @@ PHP 8.1 changed mysqli's default error mode to throw `mysqli_sql_exception`. The
 
 ### Code (P0: required before cutover)
 
-1. `sql_helper.php`: call `mysqli_report(MYSQLI_REPORT_OFF)` before `new mysqli`; replace `mysqli_error()` with `connect_error` check.
-2. `shared.php:952`: pass `$logfile` to `sprintf`.
-3. `search.php:55`: `$_Get` → `$_GET`.
+1. ~~`sql_helper.php`: call `mysqli_report(MYSQLI_REPORT_OFF)` before `new mysqli`; replace `mysqli_error()` with `connect_error` check.~~ Done.
+2. ~~`shared.php:952`: pass `$logfile` to `sprintf`.~~ Done.
+3. ~~`search.php:55`: `$_Get` → `$_GET`.~~ Done (the `activities_garmin_health` branch is now reachable).
 4. Remove the `error_reporting(E_ALL & ~E_DEPRECATED)` lines on master once the P1 items land; rely on `display_errors=Off` + `log_errors=On` in php.ini instead.
 
 ### Code (P1: same release if possible)

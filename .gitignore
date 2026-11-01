@@ -12,3 +12,7 @@ w.json
 nohup.out
 __pycache__/
 *.pyc
+
+# Local Docker stack
+/data/
+/.env

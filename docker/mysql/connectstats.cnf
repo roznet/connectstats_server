@@ -1,0 +1,18 @@
+# MySQL settings for ConnectStats. Keep tuning here (in git), never SET PERSIST:
+# persisted values live only in the datadir and silently revert if it's rebuilt.
+[mysqld]
+# innodb_buffer_pool_size is set by the compose `command:` from .env
+# (~13 GB of data on a 4 GB droplet: 1.5-2G there; stock default is 128M).
+innodb_redo_log_capacity = 536870912
+
+# Replication: the old box is server_id 1. This box is the replica until cutover,
+# and keeps binlogs afterwards so a reverse replication (rollback) is possible.
+server_id = 2
+log_bin = binlog
+binlog_expire_logs_seconds = 1209600
+
+character-set-server = utf8mb4
+collation-server = utf8mb4_0900_ai_ci
+
+slow_query_log = ON
+long_query_time = 2
