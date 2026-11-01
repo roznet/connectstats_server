@@ -32,6 +32,7 @@
  * Options:
  *   --dry-run       Show what would be deleted without actually deleting
  *   --days=N        Inactive threshold in days (default: 180)
+ *   --max-seconds=N Stop after N seconds (default: 10800)
  *   --verbose       Show detailed progress
  *
  * S3 file structure: assets/users/{cs_user_id}/{fileType}/{file_id}.{fileType}
@@ -42,22 +43,24 @@
  */
 
 include_once('../shared.php');
-include_once('../S3.php');
 
 // Parse command line options
-$options = getopt('', ['dry-run', 'days:', 'verbose', 'help']);
+$options = getopt('', ['dry-run', 'days:', 'max-seconds:', 'verbose', 'help']);
 
 if (isset($options['help'])) {
     echo "Usage: php cleanup_orphan_s3.php [options]\n\n";
     echo "Options:\n";
     echo "  --dry-run       Show what would be deleted without actually deleting\n";
     echo "  --days=N        Inactive threshold in days (default: 180)\n";
+    echo "  --max-seconds=N Stop after N seconds (default: 10800)\n";
     echo "  --verbose       Show detailed progress\n";
     exit(0);
 }
 
 $dry_run = isset($options['dry-run']);
 $inactive_days = isset($options['days']) ? intval($options['days']) : 180;
+// A full pass lists ~29k user prefixes (~75 min); the cap stops a runaway job, not a normal one
+$max_seconds = isset($options['max-seconds']) ? intval($options['max-seconds']) : 10800;
 $verbose = isset($options['verbose']);
 
 $process = new GarminProcess();
@@ -159,30 +162,41 @@ if ($is_local) {
         }
     }
 } else {
-    // S3 bucket
-    $s3 = new S3(
-        $process->api_config['s3_access_key'],
-        $process->api_config['s3_secret_key']
-    );
+    // S3 bucket: use the shared client, which signs with v4 and sets the region
+    $s3 = $process->s3();
+    if (!$s3) {
+        log_msg("ERROR: No S3 credentials configured");
+        exit(1);
+    }
 
+    $checked_users = 0;
     foreach ($inactive_users as $user) {
+        if (microtime(true) - $start_time > $max_seconds) {
+            log_msg("Stopping after $max_seconds seconds ($checked_users / $total_inactive users checked)");
+            break;
+        }
+        $checked_users++;
+
         $user_id = $user['cs_user_id'];
         $prefix = "assets/users/$user_id/";
 
         // List all objects with this prefix
         $objects = $s3->getBucket($bucket, $prefix);
+        if ($objects === false) {
+            $errors++;
+            continue;
+        }
 
         if (!empty($objects)) {
-            $file_count = count($objects);
-
-            // Delete each object
-            $user_deleted = 0;
-            foreach ($objects as $path => $info) {
-                if ($s3->deleteObject($bucket, $path)) {
-                    $user_deleted++;
-                    $deleted_files++;
-                }
+            // Bulk delete, 1000 objects per request
+            $failed = $process->delete_many_from_s3_bucket($bucket, array_keys($objects));
+            if ($failed === false) {
+                $errors++;
+                log_msg("ERROR: Failed to delete $prefix");
+                continue;
             }
+            $user_deleted = count($objects) - count($failed);
+            $deleted_files += $user_deleted;
 
             if ($user_deleted > 0) {
                 $deleted_users++;
@@ -192,8 +206,8 @@ if ($is_local) {
             }
         }
 
-        if ($deleted_users % 100 == 0 && $deleted_users > 0) {
-            log_msg("Progress: $deleted_users users processed, $deleted_files files deleted...");
+        if ($checked_users % 1000 == 0) {
+            log_msg("Progress: $checked_users users checked, $deleted_users with files, $deleted_files files deleted...");
         }
     }
 }

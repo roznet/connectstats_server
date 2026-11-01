@@ -1256,6 +1256,56 @@ class S3
 
 
 	/**
+	* Delete up to 1000 objects in one request (S3 DeleteObjects)
+	*
+	* Added locally, not part of the upstream class.
+	*
+	* @param string $bucket Bucket name
+	* @param array $uris Object URIs (max 1000)
+	* @return array|false Map of URI => error message for the objects that failed, false if the request failed
+	*/
+	public static function deleteObjects($bucket, $uris)
+	{
+		if (count($uris) == 0) return array();
+		if (count($uris) > 1000)
+		{
+			self::__triggerError('S3::deleteObjects(): at most 1000 objects per request', __FILE__, __LINE__);
+			return false;
+		}
+
+		$xml = '<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>';
+		foreach ($uris as $uri)
+			$xml .= '<Object><Key>'.htmlspecialchars($uri, ENT_XML1 | ENT_QUOTES, 'UTF-8').'</Key></Object>';
+		$xml .= '</Delete>';
+
+		$rest = new S3Request('POST', $bucket, '', self::$endpoint);
+		$rest->setParameter('delete', null);
+		$rest->data = $xml;
+		$rest->size = strlen($xml);
+		$rest->setHeader('Content-Type', 'application/xml');
+		$rest->setHeader('Content-MD5', base64_encode(md5($xml, true)));
+		$rest = $rest->getResponse();
+
+		if ($rest->error === false && $rest->code !== 200)
+			$rest->error = array('code' => $rest->code, 'message' => 'Unexpected HTTP status');
+		if ($rest->error !== false)
+		{
+			self::__triggerError(sprintf("S3::deleteObjects(): [%s] %s",
+			$rest->error['code'], $rest->error['message']), __FILE__, __LINE__);
+			return false;
+		}
+
+		// Quiet mode: the response only lists the objects that could not be deleted
+		$failed = array();
+		$body = is_string($rest->body) ? @simplexml_load_string($rest->body) : $rest->body;
+		if ($body !== false && isset($body->Error))
+			foreach ($body->Error as $error)
+				$failed[(string)$error->Key] = (string)$error->Code.': '.(string)$error->Message;
+		return $failed;
+	}
+
+
+	/**
 	* Get a query string authenticated URL
 	*
 	* @param string $bucket Bucket name

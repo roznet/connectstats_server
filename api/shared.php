@@ -1637,6 +1637,42 @@ class GarminProcess {
         }
     }
 
+    /**
+     * Delete many paths, using S3 bulk delete (1000 per request).
+     * Returns the list of paths that could not be deleted, or false if an S3 request failed.
+     */
+    function delete_many_from_s3_bucket($bucket,$paths){
+        $failed = array();
+        foreach( $paths as $path ){
+            $this->remove_from_s3_cache( $path );
+        }
+        if( substr($bucket, 0, 10) == 'localhost:' ){
+            $basepath = substr($bucket,10);
+            if( !$basepath ){
+                $basepath = '.';
+            }
+            foreach( $paths as $path ){
+                $fullpath = sprintf( '%s/%s', $basepath, $path );
+                if( is_file( $fullpath ) && !unlink( $fullpath ) ){
+                    $failed[] = $path;
+                }
+            }
+            return $failed;
+        }
+        $s3 = $this->s3();
+        if( !$s3 ){
+            return false;
+        }
+        foreach( array_chunk( $paths, 1000 ) as $chunk ){
+            $errors = $s3->deleteObjects( $bucket, $chunk );
+            if( $errors === false ){
+                return false;
+            }
+            $failed = array_merge( $failed, array_keys( $errors ) );
+        }
+        return $failed;
+    }
+
     function backup_from_s3_bucket($bucket,$path,$s3_bucket){
         
         if( substr($bucket, 0, 10) != 'localhost:' || substr($s3_bucket, 0, 10) == 'localhost:' ){
