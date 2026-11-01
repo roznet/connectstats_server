@@ -130,6 +130,12 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 
 - [x] P0 fixes (`mysqli_report`, `connect_error`, `sprintf` arg, `$_GET` typo). `setup/test.py full` 55/55 and `all` 51/51 on PHP 8.5.12 + MySQL 8.4.13 in the local compose stack (2026-11-01)
 - [ ] P1 deprecations (dynamic properties, `strftime`, vendored `S3.php` / `phpFITFileAnalysis.php`)
+- [x] PHP 7.4 → 8.5 behaviour review (2026-11-01):
+  - PHPCompatibility 10 (testVersion 8.5) on `api/`, `bugreport/`, `setup/`: no errors; only the known deprecations above plus no-op `curl_close` / `finfo_close` / `openssl_free_key`
+  - Targeted checks for silent behaviour changes: `count()` on null/false (safe: `query_as_array()` always returns an array, `query_next()` guards failed queries), string/number `==` (all numeric), removed functions, `${}` interpolation, 8.4 implicit nullable params, 8.5 casts: none
+  - Runtime on PHP 8.5 in the local stack: `test.py full` 55/55 with no warnings in app, worker or task logs; maintenance and cleanup scripts run against the test DB, weather cleanup checked on 7 synthetic rows
+  - **Bug found and fixed** (`752c89f`): the `log()` helpers passed messages to `vsprintf()` even without arguments, and the SQL helper logs every query that way. A `%` in a message (LIKE pattern, JSON in an INSERT, curl error) is a warning on 7.4 but a fatal `ValueError` on 8. Same for a `printf()` of an uploaded file name in `bugreport/list.php`
+  - Remaining: the full deprecation sweep with the test overlay (`docker-compose.test.yml`), and paths the tests don't cover (APNs, weather, S3 writes, bug report upload, backfill): Phase 5
 
 ### Phase 3: Docker
 
