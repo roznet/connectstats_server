@@ -64,7 +64,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [x] Reset `prod` branch to master (force push, 2026-11-01) and `git reset --hard origin/prod` in `/var/www/html/prod`. Old prod head was `4efc6ea` (same phpliteadmin fix as master's `30b6cb5`)
 - [x] Commit the cleanup fixes (`6fb2e20`) and deploy to dev (2026-11-01, dry runs OK on the dev DB)
 - [x] Deploy to prod (2026-11-01, `prod` fast-forwarded to `1114cb0`; tests and dry runs same as before the update)
-- [ ] Update the cron wrapper on the droplet, then run it with `--dry-run`
+- [x] Update the cron wrapper on the droplet (2026-11-01); `--dry-run` confirms `--include-orphans` now reaches the PHP script. Also applied pending server hardening: `session.upload_progress` off in Apache's PHP (verified inside Apache), Apache logs kept 90 days
 - [ ] Remove stale GitHub entries from the droplet's `~/.ssh/known_hosts` (see Gotchas)
 
 ### Phase 1: Prune data before the move
