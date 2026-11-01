@@ -163,7 +163,7 @@ Local stack built 2026-11-01, see [docker/README.md](../docker/README.md). Confi
 - [x] Bind mounts from `DATA_DIR` / `LOG_DIR` / `CONFIG_DIR` as in the table above; tmp is a named volume. Code comes from the image, config and secrets from `CONFIG_DIR`
 - [x] MySQL settings in git (`docker/mysql/connectstats.cnf`; buffer pool from `INNODB_BUFFER_POOL_SIZE` in `.env`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
 - [x] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
-- [ ] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, plus Volume snapshots (scheduled, or before risky changes)
+- [x] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, Volume snapshots only manually before risky changes (done in Phase 6, see there)
 
 **Queue and jobs.** How it works today (see [queue-system](queue-system.md)):
 
