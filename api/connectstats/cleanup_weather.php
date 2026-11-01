@@ -78,7 +78,8 @@ function providers_with_data($process, $weather) {
     global $drop_darksky;
 
     $keep = [];
-    if (!is_array($weather)) {
+    // Early (2019-2020) errors were stored at the top level: {"code":403,"error":"..."}
+    if (!is_array($weather) || isset($weather['code']) || isset($weather['error'])) {
         return $keep;
     }
     foreach ($weather as $provider => $data) {
