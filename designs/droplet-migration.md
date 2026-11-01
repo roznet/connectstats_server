@@ -232,6 +232,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 - [x] `setup/test.py all`: smoke 7/7, schema 41/43 (the 2 expected: no `dev` marker, no `assets_s3`); status endpoints 200; bug report `new` 200, `list`/`export` 401
 - [x] Known pre-existing bug: `connectstats/sync` looks up `summaryId` with `%d`, so string ids (`…-file`) never match (affects the secondary-server backup path only)
 - [x] Known pre-existing data issue: emoji in activity names are stored with their JSON escapes stripped (`ud83d…` instead of `\ud83d…`) on prod
+- [x] **Found and fixed by the simulator: every signed request got 401 behind Caddy** (`de53e0a`). `Auth::get_request_url()` rebuilt the URL from `REQUEST_SCHEME` (`http` in the container) while the app signs the `https` URL. It now honours `X-Forwarded-Proto` (http/https only; it only selects which URL the signature is checked against). Same fix for the garmin-health file URLs in `shared.php`. `test.py smoke` over https through Caddy: 7/7 (it had passed before only because it ran over plain http inside Docker)
 - [ ] Real device / simulator against the test hostname: login, sync, FIT download, bug report upload
 - [ ] Before cutover: remove `docker-compose.test.yml` from `COMPOSE_FILE` and `UPSTREAM`, `docker compose rm -sf db-test app-test worker-test`, optionally delete `test/` on the Volume
 
@@ -239,7 +240,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 
 - [ ] Lower DNS TTL a day ahead
 - [ ] Before cutover, the new box's `worker` stays stopped (the replica is read-only; workers would only fail)
-- [ ] Old Apache reverse-proxies `/prod/api/` to the new box first: with the queue self-starting, any request the old box still handles would restart its workers
+- [ ] Old Apache reverse-proxies `/prod/api/` to the new box first: with the queue self-starting, any request the old box still handles would restart its workers. **Must keep OAuth signatures valid:** `ProxyPreserveHost On` (the signed URL includes the host) and `RequestHeader set X-Forwarded-Proto "https"`, proxying to `https://new.connectstats.app/` (or the new IP with that Host). Test with `test.py smoke --base-url https://connectstats.app/prod` right after switching
 - [ ] Then on the old box: `queuectl.php stop`, wait for running tasks to finish, disable the cron jobs; final rsync of `/var/www/bugs`. Unfinished tasks stay in `tasks` and replicate over
 - [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's `SHOW BINARY LOG STATUS`), then `STOP REPLICA; RESET REPLICA ALL`, turn off `super_read_only`, mark the replicated `queues` rows as stopped (their PIDs belong to the old box), `docker compose up -d worker`; the unfinished tasks get picked up
 - [ ] Switch DNS. The proxy keeps covering clients and Garmin until it propagates
