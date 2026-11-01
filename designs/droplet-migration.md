@@ -150,7 +150,9 @@ Plan:
 - [x] `worker` container: same image, entrypoint runs `queuectl.php start` every minute (supervisor loop) plus `supercronic` with a crontab kept in git. `queuectl` and the workers share a PID namespace, so liveness checks work. Deploying `app` no longer kills running tasks; `docker compose stop worker` cleanly stops all processing (needed at cutover)
 - [x] Keep the same paths in the image (`/var/www/html/prod/api`, `/var/www/log`, …) so `task_cwd` values in rows replicated from the old box still resolve
 - [ ] Logs: `/var/www/log` on the root disk with the 15-day cleanup, or reduce per-task logging (35k files a day)
-- [ ] Worker image has `zsh`, `curl`, `jq`; still needs `python3` for `weekly_report.py` and the status check's `query.py` (or rewrite those two). Port `/var/www/bin/*.zsh` into the deployment's crontab (`CRONTAB`); the repo's `docker/worker/crontab` only has queue clean + log/tmp cleanup
+- [x] Worker image has `zsh`, `curl`, `jq` and `python3` (venv at `/opt/venv` with `mysql-connector-python`, `urllib3` for `setup/query.py`)
+- [ ] Port `/var/www/bin/*.zsh` into the deployment's crontab (`CRONTAB`); the repo's `docker/worker/crontab` only has queue clean + log/tmp cleanup
+- [ ] Alerts without local mail: the container has no MTA, so `weekly_report.py` (`/usr/bin/mail`) and `check_status` (cron `MAILTO`) can't email. Follow flyfun: healthchecks.io pings per job (success, and failure with the log tail) for alerting, and Resend's HTTP API (as weatherbrief does) if the weekly summary email is kept
 - [x] Same `www-data` uid in `app` and `worker` so both can write the bind-mounted dirs
 - [x] `sandbox` config flag: skips push notifications, weather queries, S3 writes and deletes (checked in the worker container 2026-11-01)
 - [x] Graceful `docker compose stop worker`: workers finish the current task and end `dead:stopped` (~2 s). Needs `stop_signal: SIGTERM` because the base image sets `STOPSIGNAL SIGWINCH`

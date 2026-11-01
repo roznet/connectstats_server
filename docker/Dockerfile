@@ -2,8 +2,8 @@
 #
 # Build from the repo root:  docker build -f docker/Dockerfile -t connectstats .
 # Targets:
-#   app   (default) Apache + PHP CLI + supercronic, code baked in at /var/www/html/prod
-#   test  app + Python venv for setup/test.py (local only, never deployed)
+#   app   (default) Apache + PHP CLI + Python venv + supercronic, code baked in at /var/www/html/prod
+#   test  app + test-only tools (local only, never deployed)
 #
 # Paths match the old droplet (/var/www/html/prod, /var/www/log, ...) so absolute
 # task_cwd values stored in queue.tasks keep resolving after the migration.
@@ -16,11 +16,16 @@ ARG SUPERCRONIC_SHA256_ARM64=02aa0cb229ba09050cba6638059dadb9eedc2276632ea43d6a5
 ARG TARGETARCH
 
 # zsh/jq/curl: the cron wrapper scripts use them. procps: Queue::find_running_queues() calls `ps ax`.
+# python3 (+ venv): support tools (weekly report, setup/query.py, setup/test.py).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        libzip-dev zsh jq curl procps ca-certificates tini \
+        libzip-dev zsh jq curl procps ca-certificates tini python3 python3-venv \
     && docker-php-ext-install mysqli zip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir mysql-connector-python==9.1.0 urllib3==2.2.3
+
+ENV PATH="/opt/venv/bin:${PATH}"
 
 RUN case "${TARGETARCH:-amd64}" in \
         amd64) SHA="${SUPERCRONIC_SHA256_AMD64}" ;; \
@@ -50,12 +55,6 @@ COPY --chown=www-data:www-data . /var/www/html/prod
 WORKDIR /var/www/html/prod
 
 # ---------------------------------------------------------------------------
+# Same as app today (Python is in the base). Kept as a target so test-only tools
+# can be added without growing the deployed image.
 FROM app AS test
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv \
-    && rm -rf /var/lib/apt/lists/* \
-    && python3 -m venv /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir mysql-connector-python==9.1.0 urllib3==2.2.3
-
-ENV PATH="/opt/venv/bin:${PATH}"
