@@ -22,6 +22,10 @@ x-test-app: &test-app
     - ${TEST_DIR}/state:/var/www/state
     - ${TEST_DIR}/log:/var/www/log
     - tmp-test:/var/www/tmp
+    # Log every PHP warning/notice/deprecation, including the ones the code's own
+    # error_reporting() hides (PHP-TEST prefix).
+    - ./docker/php/test-errors.ini:/usr/local/etc/php/conf.d/zz-test-errors.ini:ro
+    - ./docker/php/test_error_logger.php:/usr/local/etc/php/test_error_logger.php:ro
 
 services:
   db-test:
