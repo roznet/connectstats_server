@@ -76,7 +76,8 @@ class Auth {
         if (!$this->verbose) {
             return;
         }
-        $msg = vsprintf($fmt, $args);
+        // No arguments: $fmt is the message itself; a '%' in it makes vsprintf throw on PHP 8
+        $msg = count($args) > 0 ? vsprintf($fmt, $args) : $fmt;
         printf("%s:%.3f: %s".PHP_EOL, $tag, microtime(true) - $this->start_ts, $msg);
     }
 

@@ -326,7 +326,9 @@ class sql_helper {
         $tag = array_shift( $args );
         $fmt = array_shift( $args );
 
-        $msg = vsprintf( $fmt, $args );
+        // No arguments: $fmt is the message itself (often a query), and a '%' in it
+        // would make vsprintf throw a ValueError on PHP 8
+        $msg = count( $args ) > 0 ? vsprintf( $fmt, $args ) : $fmt;
         if( $this->debug ){
             $bt = debug_backtrace();
             foreach( $bt as $frame ){

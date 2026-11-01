@@ -128,7 +128,8 @@ class Queue {
         $tag = array_shift( $args );
         $fmt = array_shift( $args );
 
-        $msg = vsprintf( $fmt, $args );
+        // No arguments: $fmt is the message itself; a '%' in it makes vsprintf throw on PHP 8
+        $msg = count( $args ) > 0 ? vsprintf( $fmt, $args ) : $fmt;
 
         $indexes = array();
         if( isset( $this->queue_index ) ){

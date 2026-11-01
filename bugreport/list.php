@@ -272,7 +272,7 @@ class BugReport {
                                         }else{
                                             $phpliteurl = sprintf( '../%s/sqlite/%d_%s', $this->bug_data_directory, $id, $file, $file );
                                         }
-                                        printf( $phpliteurl.PHP_EOL );
+                                        print( $phpliteurl.PHP_EOL );
                     printf( '%s [<a href="%s">re-extract</a> %s]'.PHP_EOL, $file, $extract_url, $outname );
                     print( '</pre>' );
                 }else if( $is_bugreport ){
