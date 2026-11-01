@@ -170,6 +170,8 @@ Plan:
 - [ ] Port `/var/www/bin/*.zsh` into the deployment's crontab (`CRONTAB`); the repo's `docker/worker/crontab` only has queue clean + log/tmp cleanup
 - [ ] Alerts without local mail: the container has no MTA, so `weekly_report.py` (`/usr/bin/mail`) and `check_status` (cron `MAILTO`) can't email. Follow flyfun: healthchecks.io pings per job (success, and failure with the log tail) for alerting, and Resend's HTTP API (as weatherbrief does) if the weekly summary email is kept
 - [x] Same `www-data` uid in `app` and `worker` so both can write the bind-mounted dirs
+- [x] S3 from the container (2026-11-01): v4-signed `getObject` accepted by AWS from PHP 8.5 (prod `getObject` also checked on the old box). Fixed `S3.php`'s by-reference curl write callback (PHP 8 warning on every request). Full put/delete check with prod credentials in Phase 5
+- [ ] **`S3::getBucket()` (listing) fails with `SignatureDoesNotMatch` on PHP 7.4 and 8.5**, with prod and dev credentials alike, so it's the vendored v4 signing of list requests (query string `prefix`/`max-keys`), not the migration. `cleanup_orphan_s3.php` lists each inactive user's prefix, so its monthly run has likely been failing every listing. Fix the canonical query string in `S3.php` (or list by `assets.path` like the backlog cleanup)
 - [x] `sandbox` config flag: skips push notifications, weather queries, S3 writes and deletes (checked in the worker container 2026-11-01)
 - [x] Graceful `docker compose stop worker`: workers finish the current task and end `dead:stopped` (~2 s). Needs `stop_signal: SIGTERM` because the base image sets `STOPSIGNAL SIGWINCH`
 - [ ] TLS: Caddy in front (as on the main droplet) or certbot; today it's acme.sh in brice's crontab
