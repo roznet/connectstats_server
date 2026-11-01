@@ -93,6 +93,11 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [x] Run the backlog (2026-11-01, 14:19–16:06 UTC, ~43k/min, no errors): 4,729,484 `assets` rows and 4,729,484 S3 files deleted. `assets` 7.32M → 2.58M rows, 0 orphans left; spot checks show S3 and `assets` agree
 - [x] `OPTIMIZE TABLE assets` (2026-11-01, 14 s): 995 MB → 378 MB
 - [ ] Check CloudWatch on 2026-11-02/03: expect ~2.6M objects and ~310 GB
+- [x] Pre-replication cleanup (2026-11-01, 19:10–19:35 UTC, run from a scratch copy of prod code plus `31a0c2c`; prod not released): `garmin` **12.06 GB → 8.97 GB**, `queue` 264 MB → 38 MB
+  - Weather: 764,810 empty/error/Dark Sky-only rows deleted, Dark Sky removed from 381,409 rows (`cleanup_weather.php --drop-darksky`): 3,637 MB → 1,473 MB
+  - Raw Garmin cache kept 14 days (~1.32M rows deleted), push notification log and `error_*` kept 90 days (~1.5M rows deleted), finished queue tasks kept 7 days (1.38M deleted)
+  - Inactive users (180 days) with `--include-orphans`: 44k activities, 29k fitfiles, 2.8k assets and S3 files
+  - New code on master keeps these small: weather rows without data aren't stored, retention in `runmaintenance.php` and `queue.php`. The old box isn't getting it (short-lived)
 - [ ] Weather (pending decision): delete Visual Crossing `"info":"No data available"` placeholders (~450k since Apr 2023) and error rows (~15k Dark Sky errors, ~3k `403`, ~1k `[]`). Dark Sky rows (587k, until 2023-04-01) are real data but large (~2.5 KB each)
 - [ ] Weather placeholders are 40–45% of new rows and each costs a Visual Crossing query: check whether fetching right after upload is too early
 - [ ] Decide retention and Garmin deregistration (see Decisions)
