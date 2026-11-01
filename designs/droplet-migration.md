@@ -219,11 +219,21 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 
 ### Phase 5: Parallel test of the new droplet
 
-- [ ] Bring it up under a test hostname. **Don't write to the replica**: test against a separate restored copy (another schema on the new MySQL, or a second `db` container from the same seed dump), or accept re-seeding the replica afterwards
-- [ ] **A test box with real prod data and a running queue has real side effects**: push notifications to real users, Garmin callback downloads, paid Visual Crossing queries, S3 writes. Set `'sandbox' => true` in the test box's config (no APNs, no weather, no S3 writes/deletes; Garmin callback downloads still happen), and keep the test copy's queue disabled except for deliberate tests
-- [ ] `setup/test.py all` (non-destructive) against it; `full` against a dev DB
-- [ ] Real device: login, sync, FIT download, notifications, bug report upload
-- [ ] Manual checks not covered by tests: APNs, S3 upload, weather fetch, `sync`/`backup` system-auth endpoints, maintenance and cleanup jobs
+**Test stack (2026-11-01):** `docker-compose.test.yml` adds `db-test` (second MySQL, restored from the seed dump in 559 s), `app-test` and `worker-test` (sandbox, `queue_autostart` off), Caddy `UPSTREAM=app-test:80` on the test hostname. The real `db` stays a read-only replica; `app`/`worker` stay stopped. An `auto_prepend_file` error handler (test overlay only) logs every PHP warning/notice/deprecation, including those hidden by the code's own `error_reporting()`. Memory: replica buffer pool shrunk online to 768 MB for the duration, plus 2 GB swap on the host.
+
+- [x] Bring it up under the test hostname, separate copy, replica untouched
+- [x] `sandbox` on (no APNs, no weather, no S3 writes/deletes; verified in the logs: `SANDBOX: skipping weather query`)
+- [x] **Replay of real Garmin notifications** (everything prod received after the snapshot, read from the replica, POSTed to the test webhooks as Garmin does; scripts in the private repo): 343 activity + 263 file notifications, all HTTP 200, 0 failed queue tasks
+  - Activities: 319 of 337 identical to prod. All differing ones had several notifications (`activities` then `manuallyUpdatedActivities`): the replay compresses minutes into seconds and 5 workers run in parallel, so the last version can differ. Every single-notification activity is identical
+  - FIT files: 48 downloaded through Garmin's original callback URLs (others skipped: inactive users, as on prod), **48 of 48 sessions identical to prod**
+- [x] **Found and fixed by the replay: PHP 8 fatal in the FIT parser** (`d2b9766`): Connect IQ developer fields without data (CORE body temperature) → `count(null)` TypeError in `phpFITFileAnalysis.php`; the parent task still logged Success, so only the session comparison showed it. Plus `runfitextract.php` now catches `Throwable`, and developer fields without units no longer warn once per record (`c2f55cc`, ~3k warnings per file). Re-extraction of all 60 downloaded files: 0 warnings, 0 notices, 0 fatals
+- [x] Remaining PHP messages: deprecations only (dynamic properties, `strftime`), all hidden by today's settings: the P1 list
+- [x] **Found and fixed: bug report admin pages were public on the new box** (`7f60e3a`). `bugreport/list` and `export` (reporters' emails) were protected on the old box by an untracked `bugreport/.htaccess` (Basic auth), which the image never had. Served without auth on the test hostname for ~8 min (20:39–20:47 UTC); Caddy's log shows no request from anyone but our own checks. Now in the Apache vhost, password file `htpasswd` from `CONFIG_DIR`, fails closed. Lesson: diff the old box's untracked/ignored files against the repo before cutover (done: only that `.htaccess`)
+- [x] `setup/test.py all`: smoke 7/7, schema 41/43 (the 2 expected: no `dev` marker, no `assets_s3`); status endpoints 200; bug report `new` 200, `list`/`export` 401
+- [x] Known pre-existing bug: `connectstats/sync` looks up `summaryId` with `%d`, so string ids (`…-file`) never match (affects the secondary-server backup path only)
+- [x] Known pre-existing data issue: emoji in activity names are stored with their JSON escapes stripped (`ud83d…` instead of `\ud83d…`) on prod
+- [ ] Real device / simulator against the test hostname: login, sync, FIT download, bug report upload
+- [ ] Before cutover: remove `docker-compose.test.yml` from `COMPOSE_FILE` and `UPSTREAM`, `docker compose rm -sf db-test app-test worker-test`, optionally delete `test/` on the Volume
 
 ### Phase 6: Cutover
 
