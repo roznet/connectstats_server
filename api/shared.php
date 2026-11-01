@@ -1252,7 +1252,7 @@ class GarminProcess {
 
         $data = $this->get_url_data($url, NULL, NULL);
         if ($data === false) {
-            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+            $this->status->error('CURL Failed for weather query'); // get_url_data() logged the curl error; $ch isn't defined here (TypeError on PHP 8)
         } else {
             $weather = json_decode($data, true);
             // Save space, no need to keep name of columns 
@@ -1286,7 +1286,7 @@ class GarminProcess {
 
         $data = $this->get_url_data($url, NULL, NULL);
         if ($data === false) {
-            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+            $this->status->error('CURL Failed for weather query'); // get_url_data() logged the curl error; $ch isn't defined here (TypeError on PHP 8)
         } else {
             $weather = json_decode($data, true);
             $keep_hourly = array();
@@ -1311,7 +1311,7 @@ class GarminProcess {
 
         $data = $this->get_url_data($url, NULL, NULL );
         if ($data === false) {
-            $this->status->error(sprintf('CURL Failed %s', curl_error($ch)));
+            $this->status->error('CURL Failed for weather query'); // get_url_data() logged the curl error; $ch isn't defined here (TypeError on PHP 8)
         } else {
             $weather = json_decode($data, true);
             $keep_hourly = array();
