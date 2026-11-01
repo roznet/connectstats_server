@@ -14,6 +14,10 @@
 	# The API and bug reports: everything the app serves is under /prod.
 	# UPSTREAM: app:80 normally; app-test:80 while the Phase 5 test stack is up.
 	handle /prod/* {
+		# Optional deployment-specific proxying rules (e.g. requests relayed by
+		# the previous server during a migration), from the mounted site dir.
+		# A matched reverse_proxy there runs instead of the default one below.
+		import /srv/site/prod/*.caddy
 		reverse_proxy {$UPSTREAM:app:80} {
 			header_up X-Forwarded-Proto {scheme}
 		}
