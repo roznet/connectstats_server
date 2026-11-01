@@ -42,7 +42,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 | Item | Size | Notes |
 |---|---|---|
 | `garmin` DB | 13.1 GB, 22.7M rows | `activities` 3.6 GB, `weather` 3.6 GB, `fitsession` 1.9 GB, `fitfiles` 1.1 GB, `assets` 0.9 GB, cache tables ~0.9 GB |
-| `queue` DB | 264 MB | Mostly old `tasks` rows |
+| `queue` DB | 264 MB | `tasks`: rolling 45 days, ~35k tasks a day |
 | `garmin_dev` / `connectstats` DBs | 56 MB / 8 MB | |
 | `/var/www/bugs` | 3.9 GB | Bug report uploads |
 | FIT files | in S3 (prod bucket) | Not moved |
@@ -92,8 +92,27 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 - [ ] Run the backlog: `cleanup_inactive_users.php --skip-inactive --orphan-assets --limit=4800000 --skip-optimize`, then `OPTIMIZE TABLE assets` (~4.7k S3 requests)
 - [ ] Weather (pending decision): delete Visual Crossing `"info":"No data available"` placeholders (~450k since Apr 2023) and error rows (~15k Dark Sky errors, ~3k `403`, ~1k `[]`). Dark Sky rows (587k, until 2023-04-01) are real data but large (~2.5 KB each)
 - [ ] Weather placeholders are 40–45% of new rows and each costs a Visual Crossing query: check whether fetching right after upload is too early
-- [ ] Trim `queue.tasks` (1.6M rows), review `usage_summary` (137 MB), `notifications` (104 MB)
 - [ ] Decide retention and Garmin deregistration (see Decisions)
+
+**Full table inventory (2026-11-01) and what else can go.** Pruning is nice to have, not required: with replication the seed size only changes how long the seed takes, and the Volume can grow. Don't `OPTIMIZE` on the old box just for the move: dump/restore rebuilds every table compactly anyway.
+
+| Table(s) | Size | Retention today | Proposal |
+|---|---|---|---|
+| `activities`, `weather`, `fitsession`, `fitfiles` | 3.6 + 3.6 + 1.9 + 1.1 GB | Inactive-user cleanup only | The real lever is the retention decision. Activities by start year: ~170k before 2020, then 355k (2020) rising to 581k (2026). Keeping e.g. 2023 onward drops ~40% of the big tables (~4 GB) |
+| `assets` | 937 MB, 7.0M rows | — | Orphan backlog (above) removes ~4.7M rows |
+| `cache_activities`, `cache_fitfiles` (+ `_map`) | 631 + 289 + 47 MB | 45 days (`runmaintenance.php`) | Raw webhook payloads, only needed for reprocessing. Cut to ~7 days just before the seed (~800 MB) |
+| `error_activities`, `error_assets`, `error_fitfiles`, `error_users` | 64 + 22 + 13 + 4 MB | Never pruned (since 2020) | Keep 90 days; add to `runmaintenance.php` |
+| `notifications` (+ `notifications_activities`) | 104 + 24 MB, 904k rows | Never pruned (since 2021) | Push log: keep 90 days. Keep `notifications_devices` |
+| `usage_summary` | 137 MB, 1.6M rows | Never pruned (since 2019) | Delete rows for users that no longer exist; consider monthly roll-up for years before last |
+| `queue.tasks` | 264 MB, 1.6M rows | 45 days (`clean_tasks_and_queues`), ~35k tasks a day | Fine as is (not old rows). Optionally 14 days |
+| `garmin_dev` | 56 MB (36 MB is `assets_old`) | — | Don't migrate it: recreate the dev DB on the new box from test data |
+| `/var/www/bugs` + `connectstats.gc_bugreports` | 3.9 GB files, 74k rows | `bugreport/clean.php` daily | Check what `clean.php` keeps; prune old uploads before the rsync |
+| `/var/www/log` | 3.1 GB | 15 days (cleanup cron) | Not moved. Mostly one log file per queue task (~35k a day) |
+
+- [ ] Add 90-day pruning of `error_*` and `notifications` to `runmaintenance.php`
+- [ ] Clean `usage_summary` rows of deleted users
+- [ ] Shorten cache retention before the seed
+- [ ] Review bug report retention
 - [ ] Consider adding `cs_user_id` indexes to `fitfiles`, `weather`, `fitsession` (schema v9) on the new stack
 - [ ] Investigate `file.php` failures: 170–460 requests a day get `status=1` in the `usage` table (2,421 of ~26.7k in the week to 2026-11-01, predating the cleanup deploy). Likely files that no longer exist
 
@@ -114,7 +133,22 @@ See [php-upgrade](php-upgrade.md) tasks P0/P1. Key item: `mysqli_report(MYSQLI_R
 - [ ] MySQL settings in git (compose `command:` or a mounted `my.cnf`), never `SET PERSIST`: persisted values live only in the datadir and silently revert to defaults if it's rebuilt. Start with `innodb_buffer_pool_size` ~1.5–2 GB (stock 128 MB; DB is ~13 GB, box has 4 GB), a `server_id` other than 1, `log_bin` on
 - [ ] App MySQL user created by an init script with `caching_sha2_password` (8.4 disables `mysql_native_password` by default; PHP 8 `mysqli` supports it). Users and grants are not in the dump
 - [ ] Backups: droplet backups skip Volumes. Nightly `mysqldump --single-transaction` copied off the box, plus Volume snapshots (scheduled, or before risky changes)
-- [ ] Cron: port the droplet's cron jobs and `/var/www/bin/*.zsh` wrappers to run inside `worker` or as `docker compose exec`
+**Queue and jobs.** How it works today (see [queue-system](queue-system.md)):
+
+- The queue starts itself: every `GarminProcess::exec()` adds a task, then (at most every 5 s) runs `queuectl.php start` in the background. That spawns any missing `nohup php runqueue.php N &` workers (`queue_count`, default 5). No cron entry starts the queue, so **the workers are children of whichever Apache process handled the request**.
+- Liveness is checked with `ps ax` against `queues.queue_pid`, so `queuectl` only sees workers in its own PID namespace (container).
+- Workers pick tasks with `MOD(task_id, queue_count) = index` and `finished_ts IS NULL`, so a task killed mid-run is picked up again by the restarted worker (at-least-once; the scripts need to be idempotent).
+- Each task row stores an absolute `task_cwd` (e.g. `/var/www/html/prod/api/garmin`) and writes a log to `log/YYYYMMDD/task_N.log`.
+- Cron (`/etc/cron.d`): daily tmp/log/bug cleanup, weekly maintenance, monthly inactive-user and orphan-S3 cleanup, weekly report (Python), twice-daily status check (`curl`, `jq`, `setup/query.py`).
+
+Plan:
+
+- [ ] Add a config flag (e.g. `queue_autostart => false`) so web requests only add tasks and never spawn workers. On the new box, `app` (Apache) serves requests and `worker` owns all workers
+- [ ] `worker` container: same image, entrypoint runs `queuectl.php start` every minute (supervisor loop) plus `supercronic` with a crontab kept in git. `queuectl` and the workers share a PID namespace, so liveness checks work. Deploying `app` no longer kills running tasks; `docker compose stop worker` cleanly stops all processing (needed at cutover)
+- [ ] Keep the same paths in the image (`/var/www/html/prod/api`, `/var/www/log`, …) so `task_cwd` values in rows replicated from the old box still resolve
+- [ ] Logs: `/var/www/log` on the root disk with the 15-day cleanup, or reduce per-task logging (35k files a day)
+- [ ] Worker image needs `zsh`, `curl`, `jq`, `python3` for the wrapper scripts, or rewrite the few that need them. Port `/var/www/bin/*.zsh` to run inside `worker`
+- [ ] Same `www-data` uid in `app` and `worker` so both can write the bind-mounted dirs
 - [ ] TLS: Caddy in front (as on the main droplet) or certbot; today it's acme.sh in brice's crontab
 - [ ] Image update routine (rebuild/pull for PHP and MySQL security fixes)
 - [ ] Same compose locally for the test suite
@@ -142,6 +176,7 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 ### Phase 5: Parallel test of the new droplet
 
 - [ ] Bring it up under a test hostname. **Don't write to the replica**: test against a separate restored copy (another schema on the new MySQL, or a second `db` container from the same seed dump), or accept re-seeding the replica afterwards
+- [ ] **A test box with real prod data and a running queue has real side effects**: push notifications to real users, Garmin callback downloads, paid Visual Crossing queries, S3 writes. Today there's no config switch for this. Add a sandbox flag (no APNs, no weather, no S3 writes) or block egress, and keep the test copy's queue disabled except for deliberate tests
 - [ ] `setup/test.py all` (non-destructive) against it; `full` against a dev DB
 - [ ] Real device: login, sync, FIT download, notifications, bug report upload
 - [ ] Manual checks not covered by tests: APNs, S3 upload, weather fetch, `sync`/`backup` system-auth endpoints, maintenance and cleanup jobs
@@ -149,9 +184,10 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 ### Phase 6: Cutover
 
 - [ ] Lower DNS TTL a day ahead
-- [ ] Stop the queue and cron jobs on the old box; final rsync of `/var/www/bugs`
-- [ ] Old Apache reverse-proxies `/prod/api/` to the new box (from here, no writes reach the old DB)
-- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's `SHOW BINARY LOG STATUS`), then `STOP REPLICA; RESET REPLICA ALL`, turn off `super_read_only`, start queue and cron on the new box
+- [ ] Before cutover, the new box's `worker` stays stopped (the replica is read-only; workers would only fail)
+- [ ] Old Apache reverse-proxies `/prod/api/` to the new box first: with the queue self-starting, any request the old box still handles would restart its workers
+- [ ] Then on the old box: `queuectl.php stop`, wait for running tasks to finish, disable the cron jobs; final rsync of `/var/www/bugs`. Unfinished tasks stay in `tasks` and replicate over
+- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's `SHOW BINARY LOG STATUS`), then `STOP REPLICA; RESET REPLICA ALL`, turn off `super_read_only`, mark the replicated `queues` rows as stopped (their PIDs belong to the old box), `docker compose up -d worker`; the unfinished tasks get picked up
 - [ ] Switch DNS. The proxy keeps covering clients and Garmin until it propagates
 - [ ] Keep the old droplet at least two weeks; rollback = reverse replication (new → old) or replay rows received on the new box, then DNS back
 
@@ -184,4 +220,4 @@ Old box checked 2026-11-01: `log_bin=1`, `binlog_format=ROW`, binlogs kept 30 da
 
 - **2026-10-22**: PHP 8 evaluation written up ([php-upgrade](php-upgrade.md), branch `claude/php-upgrade-plan`)
 - **2026-10-25**: Committed missing `Auth.php`, dev droplet fixed
-- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served). Decided: data on a DigitalOcean Volume, database moved by replication (seed dump, no prod downtime); old box's binlog settings checked and suitable
+- **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served). Decided: data on a DigitalOcean Volume, database moved by replication (seed dump, no prod downtime); old box's binlog settings checked and suitable. Full table inventory and pruning proposals added; queue/job design for Docker (separate `worker`, no self-start from web requests)
