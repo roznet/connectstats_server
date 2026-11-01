@@ -1409,7 +1409,9 @@ class phpFITFileAnalysis
                         if (isset($this->data_mesgs['record'][$field_definition_number['field_name']]) && !$this->options['overwrite_with_dev_data']) {
                             continue;
                         }
-                        $this->data_mesgs['record'][$field_definition_number['field_name']] = $this->data_mesgs['developer_data'][$field_definition_number['field_name']]['data'];
+                        // ?? null: a developer field can declare a native field without carrying data
+                        // (e.g. CORE body temperature); same value as PHP 7.4, without the warning.
+                        $this->data_mesgs['record'][$field_definition_number['field_name']] = $this->data_mesgs['developer_data'][$field_definition_number['field_name']]['data'] ?? null;
                     }
                 }
             }
@@ -1737,7 +1739,9 @@ class phpFITFileAnalysis
                 continue;
             }
             foreach ($mesg as $field_key => $field) {
-                if (count($field) === 1) {
+                // is_array: count(null) is a TypeError on PHP 8 (it returned 0 on 7.x), and
+                // fields can be null (see the developer data overwrite above).
+                if (is_array($field) && count($field) === 1) {
                     $first_key = key($field);
                     $this->data_mesgs[$mesg_key][$field_key] = $field[$first_key];
                 }

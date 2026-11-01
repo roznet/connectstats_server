@@ -63,7 +63,7 @@ if( isset( $argv[1] ) ){
                 try {
                     $fit = new adriangibbons\phpFITFileAnalysis( $data, array( 'input_is_data' => true ) );
                     $process->fit_extract( $file_id, $fit->data_mesgs );
-                }catch(Exception $e ){
+                }catch(\Throwable $e ){ // Throwable: PHP 8 TypeErrors from the parser are Errors, not Exceptions
                     $process->log( "ERROR", "can't process fit file for id %d. Error: %s", $file_id, $e->getMessage() );
                 }
             }
