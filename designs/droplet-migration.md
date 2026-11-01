@@ -20,7 +20,8 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 | Droplet size | **2 vCPU / 4 GB** (same CPU/RAM as today), smallest root disk that fits | Root disk only holds OS, Docker images and logs; data is on the Volume. See measurements below |
 | Data storage | **DigitalOcean Volume** mounted at `/mnt/connectstats_data` (same pattern as the main droplet's MySQL) | Config, MySQL datadir, bug report uploads, logs, `state` (layout in Phase 3). Resizable online and cheap per GB, unlike the root disk (which needs a droplet resize). A future move is detach/attach. Not covered by droplet backups: needs its own backup (Phase 3) |
 | Database sync | **Replication**: old MySQL 8.0 as source → new 8.4 as replica, seeded from one dump | No prod downtime to seed; cutover is seconds instead of a dump/restore freeze, so Garmin webhooks aren't lost. Fallback: dump/restore during a freeze if replication fails. See Phase 4 |
-| Region | _open_ | Today nyc1; main droplet is lon1. **Decide before creating the Volume**: a Volume only attaches to droplets in its own region. Replication works across regions either way |
+| Region | **lon1** (2026-11-01) | Same as the main droplet and the S3 bucket (London). Old box is nyc1; replication works across regions |
+| Dev instance (`/dev`) on the new box | **No, for now** (2026-11-01) | Test on the Mac with the local compose stack; add a second stack later if needed |
 | Retention for active users | _open_ | 85% of DB is the full history (since 2019) of active users. Pruning it means a reinstalled app can't re-download old activities |
 | Deregister dormant users with Garmin | _open_ | Garmin keeps pushing activities for users idle >1 year; the monthly cleanup deletes them again. Deregistering stops the inflow and leaves ~3.5k users to move to OAuth 2.0 instead of ~32k |
 | Prune empty weather rows | _open_ | ~470k of 1.84M weather rows are placeholders or errors (see Phase 1) |
