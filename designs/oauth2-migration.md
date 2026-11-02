@@ -1,823 +1,181 @@
 # OAuth 2.0 Migration Plan
 
-## Overview
+> Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-Garmin is retiring OAuth 1.0 on **December 31, 2026**. This document outlines the migration strategy for ConnectStats Server and the iOS app.
+**Status (2026-11-02):** nothing built except the deregistration script, which is committed but not yet run. Garmin has not been contacted.
 
-## Current State Analysis
+## Decisions
 
-### Token Dependencies
+| Decision | Choice | Why |
+|---|---|---|
+| Existing users, app → server | **Unchanged**: keep the OAuth 1.0 signature | The server checks it against its own stored secret, Garmin isn't involved. No re-login, no app update |
+| Existing users, server → Garmin | **Token exchange, run by the server** | Must happen for everyone we keep. Invisible to users |
+| New logins, app → server | **Server-issued `server_token`** (Bearer) | OAuth 2.0 gives no secret to sign with, and access tokens change on refresh, so they can't identify a user |
+| OAuth 2.0 code exchange at login | **Server does it** | The server has to hold and refresh the tokens anyway, and the client secret stays off the device |
+| Dormant users | **Deregister with a 1 year cutoff, before the exchange** | Stops Garmin pushing their activities, and leaves ~5k tokens to move instead of ~27k |
+| Moving existing installs to Bearer | **Not needed for the deadline** | Optional later |
+| App release | **One version supporting both, released early** | Signed-in users: the stored credential decides how to sign. New logins: a server setting picks the flow, so OAuth 2.0 can be turned on, or back off, without an App Store release |
 
-The system currently has a **tight coupling** with Garmin's OAuth 1.0 tokens:
+## How identity works
 
-```
-┌─────────────────┐                      ┌─────────────────┐
-│  ConnectStats   │  OAuth 1.0 signed    │  ConnectStats   │
-│    iOS App      │─────────────────────▶│     Server      │
-└─────────────────┘  (Garmin tokens)     └────────┬────────┘
-                                                  │
-                                                  │ OAuth 1.0 signed
-                                                  │ (Garmin tokens)
-                                                  ▼
-                                         ┌─────────────────┐
-                                         │   Garmin API    │
-                                         └─────────────────┘
-```
+Two separate relationships use the Garmin token today, plus webhooks:
 
-### How App-to-Server Auth Currently Works
+| | Today | After migration, existing user | After migration, new login |
+|---|---|---|---|
+| App → server | OAuth 1.0 signature with the token and secret | Same | `Authorization: Bearer <server_token>` + `token_id` |
+| Server → Garmin | OAuth 1.0 signature | `Bearer <garmin_access_token>` | `Bearer <garmin_access_token>` |
+| Garmin webhook → server | User found by `userAccessToken` | User found by `userId` | User found by `userId` |
 
-**Location:** `api/shared.php:1072` - `authenticate_header()`
+**Consequence:** the OAuth 1.0 token and secret stop working at Garmin but remain the app's credentials with our server, like a username and password we own. They must never be removed while those app installs exist, and neither can the consumer key and secret in the server config.
 
-1. iOS app sends `Authorization: OAuth oauth_token={userAccessToken}, oauth_signature={...}`
-2. Server looks up `userAccessTokenSecret` from `tokens` table by `userAccessToken`
-3. Server recomputes HMAC-SHA1 signature using the secret
-4. Compares signatures to authenticate
+## Garmin's process
 
-**Endpoints using this authentication:**
-- `/api/connectstats/search` - query activities
-- `/api/connectstats/file` - download FIT files
-- `/api/connectstats/json` - get activity JSON data
-- `/api/connectstats/validateuser` - validate user
-- `/api/connectstats/sync` - sync activities
-- `/api/notifications/register` - register for push notifications
+From Garmin's migration guide:
 
-### How Server-to-Garmin Auth Works
+1. Email connect-support@developer.garmin.com with the consumer key(s). Garmin converts the app and a new OAuth 2.0 secret appears in the Developer Portal. Existing connections keep working, and new users can still use OAuth 1.0 for now.
+2. Exchange tokens per user: `POST https://apis.garmin.com/partner-gateway/rest/user/token-exchange`, signed with OAuth 1.0, **200 requests/minute**. The response has the access and refresh tokens.
+3. The OAuth 1.0 token stays valid for **30 days** after its exchange. Then that user's webhooks switch to the new format: **no `userAccessToken`, `userId` only**, and an extra `token` parameter on the callback URL.
+4. Once we complete the migration, all new connections must use OAuth 2.0.
 
-**Location:** `api/shared.php:1186` - `get_url_data()`
+## Order constraints
 
-- Uses `userAccessToken` + `userAccessTokenSecret` to sign requests
-- Used for downloading FIT files via Garmin's `callbackURL`
-
-### The Problem
-
-OAuth 2.0 tokens **do not have secrets** - they cannot be used for HMAC signing. The current app-to-server authentication scheme will break.
-
-| Use Case | OAuth 1.0 | OAuth 2.0 |
-|----------|-----------|-----------|
-| Server → Garmin | Sign with `userAccessTokenSecret` | `Bearer {access_token}` |
-| App → Server | Sign with `userAccessTokenSecret` | **No secret available** |
-
-## Migration Strategy
-
-### Architecture After Migration
-
-```
-┌─────────────────┐                      ┌─────────────────┐
-│  ConnectStats   │  Bearer server_token │  ConnectStats   │
-│    iOS App      │─────────────────────▶│     Server      │
-└─────────────────┘  (our own token)     └────────┬────────┘
-                                                  │
-                                                  │ Bearer access_token
-                                                  │ (Garmin OAuth 2.0)
-                                                  ▼
-                                         ┌─────────────────┐
-                                         │   Garmin API    │
-                                         └─────────────────┘
-```
-
-**Key insight:** Decouple app-to-server authentication from Garmin tokens entirely.
-
----
-
-## Phase 1: Server Dual-Auth Support
-
-**Goal:** Server accepts both OAuth 1.0 signatures AND Bearer tokens
-
-### 1.1 Database Changes
-
-```sql
--- Add server-issued token for app-to-server auth
-ALTER TABLE tokens ADD COLUMN server_token VARCHAR(64);
-ALTER TABLE tokens ADD COLUMN server_token_created_at TIMESTAMP;
-
--- Index for Bearer token lookup
-CREATE INDEX idx_tokens_server_token ON tokens(server_token);
-```
-
-### 1.2 Modify `authenticate_header()`
-
-**File:** `api/shared.php`
-
-The function should detect which auth method is being used:
-
-```php
-function authenticate_header($token_id){
-    $failed = true;
-
-    if( !isset( apache_request_headers()['Authorization'] ) ){
-        $this->auth_failed();
-    }
-
-    $header = apache_request_headers()['Authorization'];
-
-    // Check for Bearer token (new method)
-    if( preg_match('/^Bearer\s+(.+)$/i', $header, $matches) ){
-        $failed = !$this->authenticate_bearer_token($matches[1], $token_id);
-    }
-    // Check for OAuth 1.0 (legacy method)
-    else if( preg_match('/^OAuth\s+/i', $header) ){
-        $failed = !$this->authenticate_oauth1($header, $token_id);
-    }
-
-    if( $failed ){
-        $this->auth_failed();
-    }
-}
-
-function authenticate_bearer_token($server_token, $token_id){
-    $row = $this->sql->query_first_row(
-        "SELECT token_id FROM tokens WHERE server_token = '" .
-        $this->sql->escape($server_token) . "'"
-    );
-
-    return isset($row['token_id']) && $row['token_id'] == $token_id;
-}
-
-function authenticate_oauth1($header, $token_id){
-    // Existing OAuth 1.0 logic moved here
-    $full_url = sprintf('%s://%s%s', $_SERVER['REQUEST_SCHEME'],
-                        $_SERVER['HTTP_HOST'], $_SERVER['REQUEST_URI']);
-
-    $maps = $this->interpret_authorization_header($header);
-    if( !isset($maps['oauth_token']) || !isset($maps['oauth_nonce']) ||
-        !isset($maps['oauth_signature']) ){
-        return false;
-    }
-
-    $userAccessToken = $maps['oauth_token'];
-    $row = $this->sql->query_first_row(
-        "SELECT userAccessTokenSecret, token_id FROM tokens
-         WHERE userAccessToken = '$userAccessToken'"
-    );
-
-    if( !isset($row['token_id']) ){
-        return false;
-    }
-
-    $reconstructed = $this->authorization_header(
-        $full_url, $userAccessToken, $row['userAccessTokenSecret'],
-        $maps['oauth_nonce'], $maps['oauth_timestamp']
-    );
-    $reconstructed = str_replace('Authorization: ', '', $reconstructed);
-    $reconmaps = $this->interpret_authorization_header($reconstructed);
-
-    return urldecode($reconmaps['oauth_signature']) == urldecode($maps['oauth_signature'])
-           && $row['token_id'] == $token_id;
-}
-
-function auth_failed(){
-    if( $this->verbose ){
-        $this->log('ERROR', 'authorization failed');
-    }else{
-        header('HTTP/1.1 401 Unauthorized error');
-    }
-    die;
-}
-```
-
-### 1.3 New Endpoint: Get Server Token
-
-**File:** `api/connectstats/get_server_token.php`
-
-Allows existing users (authenticated via OAuth 1.0) to obtain a server token:
-
-```php
-<?php
-include_once('../shared.php');
-
-$process = new GarminProcess();
-
-if( isset($_GET['token_id']) ){
-    $token_id = $process->validate_input_id($_GET['token_id']);
-
-    // Authenticate using existing OAuth 1.0 method
-    $process->authenticate_header($token_id);
-
-    // Generate and store server token
-    $server_token = $process->generate_server_token($token_id);
-
-    echo json_encode([
-        'status' => 'ok',
-        'server_token' => $server_token
-    ]);
-}
-```
-
-### 1.4 Server Token Generation
-
-**File:** `api/shared.php`
-
-```php
-function generate_server_token($token_id){
-    // Generate cryptographically secure token
-    $server_token = bin2hex(random_bytes(32));
-
-    $this->sql->execute(
-        "UPDATE tokens SET server_token = '$server_token',
-         server_token_created_at = NOW()
-         WHERE token_id = $token_id"
-    );
-
-    return $server_token;
-}
-```
-
-### 1.5 Modify `user_register` to Return Server Token
-
-When registering new users, also generate and return the server token:
-
-```php
-// In register_user(), after successful registration:
-$server_token = $this->generate_server_token($token_id);
-
-return [
-    'token_id' => $token_id,
-    'cs_user_id' => $cs_user_id,
-    'server_token' => $server_token  // NEW
-];
-```
-
----
-
-## Phase 2: iOS App Update
-
-**Goal:** App uses Bearer token for server communication
-
-### 2.1 App Startup Flow
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  App startup                                                │
-│                                                             │
-│  Has server_token stored in Keychain?                       │
-│      YES → Use Bearer auth for all server requests          │
-│      NO  → Is user registered? (has token_id?)              │
-│              YES → Call /get_server_token (OAuth 1.0 auth)  │
-│                    Store returned server_token              │
-│              NO  → Normal registration flow                 │
-│                    (will receive server_token)              │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 2.2 Request Signing Changes
-
-**Before (OAuth 1.0):**
-```swift
-// Complex OAuth 1.0 signature generation
-let header = OAuth1.authorizationHeader(
-    url: url,
-    token: userAccessToken,
-    tokenSecret: userAccessTokenSecret,
-    consumerKey: consumerKey,
-    consumerSecret: consumerSecret
-)
-request.setValue(header, forHTTPHeaderField: "Authorization")
-```
-
-**After (Bearer):**
-```swift
-// Simple Bearer token
-request.setValue("Bearer \(serverToken)", forHTTPHeaderField: "Authorization")
-```
-
-### 2.3 Migration Logic in App
-
-```swift
-class AuthManager {
-    func getAuthorizationHeader() -> String {
-        // Prefer new server token if available
-        if let serverToken = Keychain.get("server_token") {
-            return "Bearer \(serverToken)"
-        }
-
-        // Fall back to OAuth 1.0 for migration period
-        return generateOAuth1Header()
-    }
-
-    func migrateToServerToken() async throws {
-        guard Keychain.get("server_token") == nil,
-              let tokenId = Keychain.get("token_id") else {
-            return
-        }
-
-        // Call server with OAuth 1.0 auth to get server token
-        let response = try await api.getServerToken(tokenId: tokenId)
-        Keychain.set("server_token", response.serverToken)
-    }
-}
-```
-
----
-
-## Phase 3: Garmin OAuth 2.0 Migration
-
-**Goal:** Support Garmin's new OAuth 2.0 PKCE flow
-
-### 3.1 Database Changes
-
-```sql
--- OAuth 2.0 token storage
-ALTER TABLE tokens ADD COLUMN garmin_access_token VARCHAR(255);
-ALTER TABLE tokens ADD COLUMN garmin_refresh_token VARCHAR(255);
-ALTER TABLE tokens ADD COLUMN garmin_token_expires_at INT;
-ALTER TABLE tokens ADD COLUMN garmin_refresh_expires_at INT;
-ALTER TABLE tokens ADD COLUMN oauth_version TINYINT DEFAULT 1;
-
--- userId becomes primary identifier (already exists, ensure indexed)
-CREATE INDEX idx_tokens_userId ON tokens(userId);
-```
-
-### 3.2 OAuth 2.0 Token Storage
-
-```php
-function store_oauth2_tokens($token_id, $access_token, $refresh_token,
-                             $expires_in, $refresh_expires_in){
-    $expires_at = time() + $expires_in - 600; // 10 min buffer
-    $refresh_expires_at = time() + $refresh_expires_in;
-
-    $this->sql->execute(
-        "UPDATE tokens SET
-         garmin_access_token = '$access_token',
-         garmin_refresh_token = '$refresh_token',
-         garmin_token_expires_at = $expires_at,
-         garmin_refresh_expires_at = $refresh_expires_at,
-         oauth_version = 2
-         WHERE token_id = $token_id"
-    );
-}
-```
-
-### 3.3 Token Refresh Logic
-
-```php
-function get_valid_garmin_token($token_id){
-    $row = $this->sql->query_first_row(
-        "SELECT garmin_access_token, garmin_refresh_token,
-                garmin_token_expires_at, oauth_version,
-                userAccessToken, userAccessTokenSecret
-         FROM tokens WHERE token_id = $token_id"
-    );
-
-    // OAuth 1.0 - return existing tokens
-    if( $row['oauth_version'] == 1 ){
-        return [
-            'version' => 1,
-            'token' => $row['userAccessToken'],
-            'secret' => $row['userAccessTokenSecret']
-        ];
-    }
-
-    // OAuth 2.0 - check expiry and refresh if needed
-    if( time() >= $row['garmin_token_expires_at'] ){
-        $this->refresh_garmin_token($token_id, $row['garmin_refresh_token']);
-        $row = $this->sql->query_first_row(
-            "SELECT garmin_access_token FROM tokens WHERE token_id = $token_id"
-        );
-    }
-
-    return [
-        'version' => 2,
-        'token' => $row['garmin_access_token']
-    ];
-}
-
-function refresh_garmin_token($token_id, $refresh_token){
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, 'https://diauth.garmin.com/di-oauth2-service/oauth/token');
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query([
-        'grant_type' => 'refresh_token',
-        'client_id' => $this->api_config['oauth2ClientId'],
-        'client_secret' => $this->api_config['oauth2ClientSecret'],
-        'refresh_token' => $refresh_token
-    ]));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    $response = json_decode(curl_exec($ch), true);
-    curl_close($ch);
-
-    if( isset($response['access_token']) ){
-        $this->store_oauth2_tokens(
-            $token_id,
-            $response['access_token'],
-            $response['refresh_token'],
-            $response['expires_in'],
-            $response['refresh_token_expires_in']
-        );
-    }
-}
-```
-
-### 3.4 Modify `get_url_data()` for Dual OAuth Support
-
-```php
-function get_url_data_for_token($url, $token_id){
-    $garmin_token = $this->get_valid_garmin_token($token_id);
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-
-    if( $garmin_token['version'] == 2 ){
-        // OAuth 2.0 - simple Bearer header
-        $headers = ['Authorization: Bearer ' . $garmin_token['token']];
-    }else{
-        // OAuth 1.0 - signed header
-        $headers = [$this->authorization_header(
-            $url, $garmin_token['token'], $garmin_token['secret']
-        )];
-    }
-
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-    $data = curl_exec($ch);
-    curl_close($ch);
-
-    return $data;
-}
-```
-
-### 3.5 Webhook Handler Updates
-
-Webhooks will use `userId` instead of `userAccessToken` after OAuth 2.0 migration:
-
-```php
-function lookup_user_from_webhook($item){
-    // Try userId first (OAuth 2.0)
-    if( isset($item['userId']) ){
-        $row = $this->sql->query_first_row(
-            "SELECT token_id, cs_user_id FROM tokens
-             WHERE userId = '" . $this->sql->escape($item['userId']) . "'"
-        );
-        if( $row ){
-            return $row;
-        }
-    }
-
-    // Fall back to userAccessToken (OAuth 1.0)
-    if( isset($item['userAccessToken']) ){
-        $row = $this->sql->query_first_row(
-            "SELECT token_id, cs_user_id FROM tokens
-             WHERE userAccessToken = '" . $this->sql->escape($item['userAccessToken']) . "'"
-        );
-        if( $row ){
-            return $row;
-        }
-    }
-
-    return null;
-}
-```
-
-### 3.6 iOS App: OAuth 2.0 PKCE Flow
-
-```swift
-class GarminOAuth2 {
-    func startAuthorization() -> URL {
-        // Generate PKCE codes
-        let codeVerifier = generateCodeVerifier()  // 43-128 char random string
-        let codeChallenge = codeVerifier.sha256().base64URLEncoded()
-
-        // Store verifier for token exchange
-        Keychain.set("pkce_verifier", codeVerifier)
-
-        var components = URLComponents(string: "https://connect.garmin.com/oauth2Confirm")!
-        components.queryItems = [
-            URLQueryItem(name: "client_id", value: clientId),
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "code_challenge", value: codeChallenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "redirect_uri", value: redirectUri),
-            URLQueryItem(name: "state", value: UUID().uuidString)
-        ]
-
-        return components.url!
-    }
-
-    func exchangeCodeForTokens(code: String) async throws -> OAuth2Tokens {
-        let codeVerifier = Keychain.get("pkce_verifier")!
-
-        let response = try await post(
-            url: "https://diauth.garmin.com/di-oauth2-service/oauth/token",
-            params: [
-                "grant_type": "authorization_code",
-                "client_id": clientId,
-                "client_secret": clientSecret,
-                "code": code,
-                "code_verifier": codeVerifier,
-                "redirect_uri": redirectUri
-            ]
-        )
-
-        return OAuth2Tokens(
-            accessToken: response.access_token,
-            refreshToken: response.refresh_token,
-            expiresIn: response.expires_in
-        )
-    }
-}
-```
-
----
-
-## Phase 4: Cleanup (Post December 2026)
-
-After OAuth 1.0 retirement:
-
-1. Remove OAuth 1.0 authentication code from `authenticate_header()`
-2. Remove `userAccessToken` and `userAccessTokenSecret` columns (or keep for historical reference)
-3. Remove OAuth 1.0 signing code from iOS app
-4. Update documentation
-
----
-
-## Testing Strategy
-
-### The Testing Challenge
-
-This migration is high-risk because:
-1. Authentication failures lock users out completely
-2. Can't easily test with production Garmin tokens
-3. Need to test both old and new auth paths simultaneously
-4. Token refresh failures could cause delayed issues
-
-### Test Environments
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Environment Setup                                          │
-├─────────────────────────────────────────────────────────────┤
-│  LOCAL DEV     │ Mock Garmin responses, synthetic tokens    │
-│  STAGING       │ Real Garmin eval keys, test accounts       │
-│  PRODUCTION    │ Gradual rollout with feature flags         │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Phase 1 Testing: Dual-Auth Server
-
-#### Unit Tests
-
-```php
-class AuthenticationTest extends PHPUnit\Framework\TestCase {
-
-    // Test Bearer token authentication
-    function test_bearer_auth_valid_token(){
-        $token_id = $this->createTestUser();
-        $server_token = $this->process->generate_server_token($token_id);
-
-        $_SERVER['HTTP_AUTHORIZATION'] = "Bearer $server_token";
-
-        // Should not throw/die
-        $this->process->authenticate_header($token_id);
-        $this->assertTrue(true);
-    }
-
-    function test_bearer_auth_invalid_token(){
-        $this->expectException(AuthenticationException::class);
-
-        $_SERVER['HTTP_AUTHORIZATION'] = "Bearer invalid_token";
-        $this->process->authenticate_header(123);
-    }
-
-    function test_bearer_auth_wrong_token_id(){
-        $token_id_1 = $this->createTestUser();
-        $token_id_2 = $this->createTestUser();
-        $server_token = $this->process->generate_server_token($token_id_1);
-
-        $_SERVER['HTTP_AUTHORIZATION'] = "Bearer $server_token";
-
-        // Token belongs to user 1, but requesting as user 2
-        $this->expectException(AuthenticationException::class);
-        $this->process->authenticate_header($token_id_2);
-    }
-
-    // Test OAuth 1.0 still works (backward compatibility)
-    function test_oauth1_still_works(){
-        $token_id = $this->createTestUserWithOAuth1();
-        $header = $this->generateOAuth1Header($token_id);
-
-        $_SERVER['HTTP_AUTHORIZATION'] = $header;
-
-        // Should not throw/die
-        $this->process->authenticate_header($token_id);
-        $this->assertTrue(true);
-    }
-
-    // Test server token generation
-    function test_generate_server_token(){
-        $token_id = $this->createTestUser();
-
-        $token1 = $this->process->generate_server_token($token_id);
-        $token2 = $this->process->generate_server_token($token_id);
-
-        // Each call generates new token
-        $this->assertNotEquals($token1, $token2);
-        $this->assertEquals(64, strlen($token2)); // 32 bytes = 64 hex chars
-    }
-}
-```
-
-#### Integration Tests
-
-```bash
-#!/bin/bash
-# test_dual_auth.sh
-
-BASE_URL="https://staging.example.com/api"
-
-# Test 1: OAuth 1.0 still works
-echo "Test 1: OAuth 1.0 authentication"
-OAUTH1_HEADER=$(generate_oauth1_header "$TOKEN_ID" "$ACCESS_TOKEN" "$ACCESS_SECRET")
-curl -s -H "Authorization: $OAUTH1_HEADER" \
-    "$BASE_URL/connectstats/validateuser?token_id=$TOKEN_ID" | jq .
-
-# Test 2: Get server token via OAuth 1.0
-echo "Test 2: Get server token"
-SERVER_TOKEN=$(curl -s -H "Authorization: $OAUTH1_HEADER" \
-    "$BASE_URL/connectstats/get_server_token?token_id=$TOKEN_ID" | jq -r .server_token)
-echo "Server token: $SERVER_TOKEN"
-
-# Test 3: Bearer auth works
-echo "Test 3: Bearer authentication"
-curl -s -H "Authorization: Bearer $SERVER_TOKEN" \
-    "$BASE_URL/connectstats/validateuser?token_id=$TOKEN_ID" | jq .
-
-# Test 4: Invalid bearer rejected
-echo "Test 4: Invalid bearer rejected (expect 401)"
-curl -s -w "%{http_code}" -H "Authorization: Bearer invalid_token" \
-    "$BASE_URL/connectstats/validateuser?token_id=$TOKEN_ID"
-```
-
-### Phase 2 Testing: iOS App Migration
-
-#### Test Matrix
-
-| Scenario | Initial State | Action | Expected Result |
-|----------|---------------|--------|-----------------|
-| Fresh install | No tokens | Register | Gets token_id + server_token |
-| Existing user, app update | Has OAuth 1.0 tokens, no server_token | App startup | Calls /get_server_token, stores it |
-| Existing user, has server_token | Has server_token | API call | Uses Bearer auth |
-| Server token invalid | Has invalid server_token | API call | 401, re-fetch server_token |
-| Offline migration | Has OAuth 1.0, no network | App startup | Uses OAuth 1.0 until network available |
-
-#### TestFlight Staged Rollout
-
-1. **Internal testing (1 week)**: Dev team only
-2. **Beta group 1 (1 week)**: 100 users who opted in
-3. **Beta group 2 (1 week)**: 1000 users
-4. **General release**: Monitor for 401 errors spike
-
-### Phase 3 Testing: Garmin OAuth 2.0
-
-#### Pre-Migration Checklist
-
-- [ ] All existing users have `userId` populated in database
-- [ ] Contact Garmin support to enable OAuth 2.0 for consumer key
-- [ ] Receive new OAuth 2.0 client secret from Garmin portal
-- [ ] Test token exchange endpoint with test account
-
-#### Token Exchange Testing
-
-```bash
-# Test token exchange (OAuth 1.0 -> OAuth 2.0)
-# Must be signed with OAuth 1.0 credentials
-
-curl -X POST "https://apis.garmin.com/partner-gateway/rest/user/token-exchange" \
-    -H "Authorization: $OAUTH1_SIGNED_HEADER" \
-    -H "Content-Type: application/json"
-
-# Expected response:
-# {
-#   "access_token": "...",
-#   "refresh_token": "...",
-#   "expires_in": 86400,
-#   "refresh_token_expires_in": 7775998
-# }
-```
-
-#### Token Refresh Testing
-
-```php
-// Test that token refresh works before expiry
-function test_token_refresh(){
-    // Create user with OAuth 2.0 tokens that expire in 1 second
-    $token_id = $this->createOAuth2User(expires_in: 1);
-
-    sleep(2);
-
-    // Should trigger refresh
-    $garmin_token = $this->process->get_valid_garmin_token($token_id);
-
-    // Verify new token was fetched
-    $this->assertNotEquals($original_token, $garmin_token['token']);
-}
-```
-
-#### Webhook Testing
-
-```bash
-# Simulate OAuth 2.0 style webhook (with userId, no userAccessToken)
-curl -X POST "$BASE_URL/api/garmin/activities" \
-    -H "Content-Type: application/json" \
-    -d '{
-        "activities": [{
-            "userId": "d3315b1072421d0dd7c8f6b8e1de4df8",
-            "summaryId": "test-123",
-            "activityType": "RUNNING",
-            "startTimeInSeconds": 1704067200
-        }]
-    }'
-
-# Verify activity was associated with correct user
-```
-
-### Monitoring & Alerting
-
-#### Key Metrics to Monitor
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Metric                          │  Alert Threshold         │
-├─────────────────────────────────────────────────────────────┤
-│  401 Unauthorized rate           │  > 1% of requests        │
-│  /get_server_token calls         │  Spike detection         │
-│  Token refresh failures          │  Any failures            │
-│  Webhook processing failures     │  > 0.1% of webhooks      │
-│  OAuth 1.0 vs Bearer auth ratio  │  Track migration prog.   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-#### Logging for Debugging
-
-```php
-// Add to authenticate_header()
-function authenticate_header($token_id){
-    $auth_method = 'unknown';
-    $auth_result = 'failed';
-
-    // ... authentication logic ...
-
-    // Log for monitoring
-    error_log(sprintf(
-        "AUTH: token_id=%d method=%s result=%s ip=%s",
-        $token_id, $auth_method, $auth_result, $_SERVER['REMOTE_ADDR']
-    ));
-}
-```
-
-### Rollback Plan
-
-#### Phase 1 Rollback
-- Server continues accepting OAuth 1.0
-- No action needed, old auth still works
-
-#### Phase 2 Rollback
-- Push app update that reverts to OAuth 1.0 only
-- Server still accepts OAuth 1.0
-
-#### Phase 3 Rollback
-- OAuth 1.0 tokens remain valid for 30 days after exchange
-- Can revert server to use OAuth 1.0 tokens if still within window
-
----
+- **Deregister before the exchange**: deregistering is signed with the OAuth 1.0 token.
+- **Webhook changes live before the first exchange**: a user's format changes 30 days later, and both formats arrive during the transition.
+- **Exchange by about 1 Dec**: this leaves the full 30 day overlap before retirement. A token not exchanged by 31 Dec probably can't be: that user has to log in again, on an app version with OAuth 2.0.
+- **App released before Garmin's conversion is needed**: with the setting off it behaves as today, so it can ship early. Until the conversion its OAuth 2.0 login can only be tested against the mock, so leave time for a fix release.
+- **Setting on before telling Garmin the migration is complete**, and before 31 Dec, when OAuth 1.0 login stops working. This needs the app live, Garmin's conversion and the server's login endpoint.
 
 ## Timeline
 
-```
-2025                                                    2026
-  │                                                       │
-  Q1        Q2        Q3        Q4        Q1        Q4   │
-  │         │         │         │         │         │    │
-  ▼         ▼         ▼         ▼         ▼         ▼    ▼
-┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
-│ Phase 1 │ Phase 1 │ Phase 2 │ Phase 2 │ Phase 3 │ Phase 3 │
-│ Dev     │ Deploy  │ Dev     │ Release │ Dev     │ Migrate │
-│         │ +Test   │         │         │         │ Users   │
-└─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘
-                                                          │
-                                              Dec 31, 2026 │
-                                              OAuth 1.0    │
-                                              Retired ─────┘
-```
+Target dates, proposed 2026-11-02.
 
-## Configuration Changes
+| By | Step |
+|---|---|
+| Now | Deregistration: deploy and run |
+| 9 Nov | Ask Garmin to convert the app, `garmin_dev` key first if possible; get answers to the open questions |
+| 16 Nov | App submitted: supports both flows, setting off |
+| 20 Nov | Server work deployed: webhooks, token storage and refresh, login, exchange script |
+| Once converted | Test OAuth 2.0 login on one's own account, then turn the setting on |
+| ~1 Dec | Token exchange on all kept tokens |
+| Before 31 Dec | Setting on for good, tell Garmin the migration is complete |
+| ~1 Jan | Old-format webhooks should have stopped; remove what's no longer needed (see Cleanup) |
 
-### New Config Values
+## Work
 
-```php
-// api/config.php additions
+### 1. Deregistration (`api/connectstats/deregister_dormant_users.php`)
 
-// OAuth 2.0 credentials (from Garmin portal after migration enabled)
-'oauth2ClientId' => 'your-oauth2-client-id',
-'oauth2ClientSecret' => 'your-oauth2-client-secret',
+Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 users), 5,010 kept. About 3.6 hours at 100 calls/minute.
 
-// Feature flags for gradual rollout
-'allow_bearer_auth' => true,      // Phase 1: enable Bearer token auth
-'allow_oauth1_auth' => true,      // Keep true until Phase 4
-'require_server_token' => false,  // Phase 2: require server token for new registrations
-```
+- [x] Script: dry run by default, skips anything recent, resumable, stops after repeated failures
+- [ ] Deploy, add `url_user_registration` to the config
+- [ ] Dry run, `--execute --limit=1`, `--limit=50`, then the full run
+- [ ] Decide what to do with tokens that keep failing
+
+Deregistered users keep their rows. Coming back, they get a 401, and the app asks for a login.
+
+### 2. Webhooks (server)
+
+The code assumes `userAccessToken` is always present. Without it:
+
+| Where | What happens today |
+|---|---|
+| `process()` in `api/shared.php` | **`Missing end point field`: the activity or file is not saved** |
+| Linking a row to its user (`cs_user_id`, in the update step after `process()`) | Skipped |
+| FIT download (`userAccessToken` lookup before `get_url_data()`) | Fails with "unregistered user" |
+| `deregister_user()` | **Silently does nothing**: the token stays live |
+
+- [ ] `process()`: `userId` required, `userAccessToken` optional
+- [ ] Add a lookup by `userId`, used wherever `user_info()` takes a webhook's token. Several rows can share a `userId`: pick the newest row with live Garmin credentials
+- [ ] Index `tokens.userId`
+- [ ] `deregister_user()`: handle `userId`, and clear the secret, Garmin tokens and server token on all that user's rows
+- [ ] Check nothing depends on `activities.userAccessToken` being set, such as `search` with `activities_garmin_health` output
+- [ ] Test the callback URL with the extra `token` parameter. The download uses the URL unchanged and signs its query parameters, so it should work with both schemes
+
+### 3. Token storage and calling Garmin (server)
+
+- [ ] Schema version bump in `ensure_schema()`. On `tokens`: `garmin_access_token`, `garmin_refresh_token`, `garmin_token_expires_at`, `garmin_refresh_expires_at`
+- [ ] `Auth::get_url_data()` and callers: use Bearer if the user has an OAuth 2.0 token, otherwise OAuth 1.0
+- [ ] Refresh the access token when expired. Take a lock (`GET_LOCK` per user) and re-read after getting it: queue workers run concurrently, and a refresh may replace the refresh token
+- [ ] **Scheduled refresh job**: on-demand refresh isn't enough. Downloads are skipped for users idle over 45 days, so their tokens would never refresh and the refresh token would expire (about 90 days in Garmin's documented response; to confirm)
+- [ ] Refresh failing for good: clear the row's app credentials, so the app gets a 401 and asks for a login, as with deregistration. Log it
+
+### 4. Login for new users (server + app)
+
+Flow:
+
+1. The app creates the PKCE verifier and challenge, and opens Garmin's authorization page with the `client_id`, challenge, `state` and redirect URI (`https://connect.garmin.com/oauth2Confirm`).
+2. Garmin redirects back with a `code`. The app checks `state`.
+3. The app sends `code`, `code_verifier` and `redirect_uri` to a new endpoint, by POST so they don't end up in URLs and logs.
+4. The server exchanges them using the client secret (`https://diauth.garmin.com/di-oauth2-service/oauth/token`), gets the `userId` with the new token (`url_user_id`), and creates or reuses the `users` row and adds a `tokens` row with no OAuth 1.0 token or secret.
+5. The server returns `token_id`, `cs_user_id` and a new `server_token`. The app keeps these in the Keychain. It never sees Garmin's tokens.
+
+Server:
+
+- [ ] New endpoint `api/connectstats/user_register_oauth2.php`
+- [ ] Config: `oauth2ClientId`, `oauth2ClientSecret`
+- [ ] `server_token`: 32 random bytes; store only its SHA-256 (`tokens.server_token_hash`), so a database leak doesn't expose it
+- [ ] `Auth::authenticate_header()`: accept `Bearer`, and check the row matches `token_id`. Every endpoint using it gets this automatically (`search`, `json`, `file`, `sync`, `validateuser`, `notifications/register`)
+- [ ] Check code that assumes `userAccessToken` is set on a `tokens` row (`user_info()`, `Auth::authorization_header_for_token_id()`, `api/garmin/sign.php`)
+- [ ] `/api/status/api` returns the setting from the config: `{"status":1, "garmin_login":"oauth2"}`. Not set means OAuth 1.0
+
+App, one version supporting both:
+
+Signed-in users need no mode: a stored `server_token` means Bearer, otherwise OAuth 1.0 as today. Whether the server has exchanged that user's Garmin token makes no difference to the app. Only a new login needs the setting, to choose the flow.
+
+- [ ] `GCConnectStatsRequest.m`, `signIn`: use the PKCE flow if the setting says `oauth2`, otherwise `signInGarminStep`
+- [ ] `isSignedIn`: currently requires a secret, must accept a `server_token` instead
+- [ ] `preparedUrlRequest:params:`: Bearer if the app has a `server_token`, otherwise the existing OAuth 1.0 signing
+- [ ] `signout`: also clears the `server_token`
+- [ ] 401 keeps forcing a new login (already the case, in `checkNoErrors`)
+- [ ] `GCConnectStatsRequestAPICheck.swift`: read `garmin_login` and save it, like `redirect`. The app calls this just before login on each sync
+- [ ] Fresh install: make sure login waits for the status check. If there's no answer, use the last saved value, or OAuth 1.0 if none
+
+Versions without this only have OAuth 1.0 login. They keep working for anyone signed in, but after 31 Dec anyone signed out, including deregistered users, has to update first.
+
+### 5. Token exchange (server)
+
+- [ ] New script, same shape as the deregistration script: dry run by default, limit, rate, resumable, stops after repeated failures. Logs IDs only
+- [ ] Rate: at most 200/minute. About 25 minutes for ~5k tokens
+- [ ] Store the response immediately, and skip rows that already have an OAuth 2.0 token on a re-run
+- [ ] **One exchange per Garmin user**, on the newest live token (~4.9k users, ~5k tokens). Other rows keep their secret for app auth and get Garmin credentials through `userId`. To confirm with Garmin
+- [ ] Before running: fill in missing `userId` values with `url_user_id`, and decide on tokens without a `cs_user_id`. On 2026-11-02, 7 tokens had no `userId`, and 7 live tokens had no `cs_user_id`
+- [ ] Run on one's own account first, check downloads for a few days, then a small batch, then all
+
+## Cleanup (January 2027)
+
+- [ ] Remove OAuth 1.0 from server → Garmin calls, and the OAuth 1.0 branch in webhook handling once no webhook has carried a token for a while
+- [ ] Remove `deregister_dormant_users.php` and the exchange script. Deregistering any user afterwards needs Bearer
+- **Keep** OAuth 1.0 signature checking, `userAccessToken`, `userAccessTokenSecret` and the consumer key and secret: existing installs depend on them
+
+## Testing
+
+There's no dev instance on the new droplet: test on the local stack (`docker compose`, see [testing](testing.md)).
+
+- **Local:** extend the Garmin mock (`docker/dev/mock/garmin`) with token exchange, token and refresh endpoints, and old and new webhook formats. Add `test_full.py` cases: old-format webhook, new-format webhook, mixed batch, Bearer auth (valid, wrong `token_id`, invalid), OAuth 1.0 auth after exchange, refresh, refresh failure, deregistration by `userId`
+- **Real Garmin:** the `garmin_dev` key, if Garmin converts it first, with a test account through login, exchange and a real activity
+- **Prod:** own account first (see Work 5)
+
+Watch during the transition: 401 rate, `error_*` tables, refresh failures, activities with no `cs_user_id`, FIT download failures.
+
+## Rollback
+
+- **Webhooks, Bearer auth:** additive, old paths keep working; revert the deploy
+- **OAuth 2.0 login:** turn the setting off, which works until the migration is declared complete or 31 Dec. Users who already logged in with OAuth 2.0 keep their `server_token`
+- **Exchange, first 30 days:** the OAuth 1.0 tokens are still valid at Garmin, so calls can go back to OAuth 1.0
+- **Exchange, after 30 days:** no rollback, only fixing forward
+- **Deregistration:** no rollback; the user logs in again
+
+## Open questions for Garmin
+
+- Does converting the app affect the `garmin_dev` key, and can it be converted first to test?
+- Does deregistration return a 204 for this endpoint, and what does it return for a token that's already dead?
+- Can a Garmin user with several OAuth 1.0 tokens end up with several OAuth 2.0 tokens? Is exchanging one enough?
+- Token lifetimes, and does a refresh replace the refresh token? (the 24 hour / 90 day values come from an example response)
+- After 31 Dec, can a token that wasn't exchanged still be exchanged?
+- When a user disconnects under OAuth 2.0, what does the deregistration webhook contain?
+- Which host and base path does each endpoint use? We currently call `healthapi.garmin.com`, while the guide uses `apis.garmin.com`
 
 ## References
 
-- [Garmin OAuth 2.0 PKCE Specification](https://developerportal.garmin.com/developer-programs/content/829/programs-docs)
-- [Garmin OAuth 1.0 to OAuth 2.0 Migration Guide](https://developer.garmin.com/health-api/overview/)
-- Original design docs: [authentication.md](authentication.md), [garmin-integration.md](garmin-integration.md)
+- Garmin's *OAuth 1 to OAuth 2 Migration* guide (Developer Portal); questions to connect-support@developer.garmin.com
+- [authentication](authentication.md), [garmin-integration](garmin-integration.md), [droplet-migration](droplet-migration.md)

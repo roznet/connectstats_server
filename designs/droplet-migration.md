@@ -23,7 +23,7 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
 | Region | **lon1** (2026-11-01) | Same as the main droplet and the S3 bucket (London). Old box is nyc1; replication works across regions |
 | Dev instance (`/dev`) on the new box | **No, for now** (2026-11-01) | Test on the Mac with the local compose stack; add a second stack later if needed |
 | Retention for active users | _open_ | 85% of DB is the full history (since 2019) of active users. Pruning it means a reinstalled app can't re-download old activities |
-| Deregister dormant users with Garmin | _open_ | Garmin keeps pushing activities for users idle >1 year; the monthly cleanup deletes them again. Deregistering stops the inflow and leaves ~3.5k users to move to OAuth 2.0 instead of ~32k |
+| Deregister dormant users with Garmin | **Yes, 1 year cutoff** (2026-11-02) | Garmin keeps pushing activities for idle users; the monthly cleanup deletes them again. Stops the inflow and leaves ~5k tokens to move to OAuth 2.0 instead of ~27k. Tracked in [oauth2-migration](oauth2-migration.md) |
 | Prune empty weather rows | _open_ | ~470k of 1.84M weather rows are placeholders or errors (see Phase 1) |
 
 ## Current State (measured 2026-11-01)
@@ -100,7 +100,8 @@ Code-level PHP 8 findings and fixes are in [php-upgrade](php-upgrade.md). That d
   - New code on master keeps these small: weather rows without data aren't stored, retention in `runmaintenance.php` and `queue.php`. The old box isn't getting it (short-lived)
 - [ ] Weather (pending decision): delete Visual Crossing `"info":"No data available"` placeholders (~450k since Apr 2023) and error rows (~15k Dark Sky errors, ~3k `403`, ~1k `[]`). Dark Sky rows (587k, until 2023-04-01) are real data but large (~2.5 KB each)
 - [ ] Weather placeholders are 40–45% of new rows and each costs a Visual Crossing query: check whether fetching right after upload is too early
-- [ ] Decide retention and Garmin deregistration (see Decisions)
+- [ ] Decide retention (see Decisions)
+- [x] Decide Garmin deregistration: yes, 1 year cutoff, run tracked in [oauth2-migration](oauth2-migration.md)
 
 **Full table inventory (2026-11-01) and what else can go.** Pruning is nice to have, not required: with replication the seed size only changes how long the seed takes, and the Volume can grow. Don't `OPTIMIZE` on the old box just for the move: dump/restore rebuilds every table compactly anyway.
 

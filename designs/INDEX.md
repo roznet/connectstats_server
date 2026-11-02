@@ -60,7 +60,7 @@ Key exports: `test.py`, `connectstats_test/`
 → Full doc: testing.md
 
 ### oauth2-migration
-**Migration plan**: OAuth 1.0 → OAuth 2.0 (deadline: Dec 2026).
+**Migration plan and tracking**: OAuth 1.0 → OAuth 2.0 (deadline: 31 Dec 2026). Existing users keep their app login and the server exchanges their Garmin token; new logins use a server-issued token; webhooks identify users by `userId`.
 → Full doc: oauth2-migration.md
 
 ### php-upgrade
