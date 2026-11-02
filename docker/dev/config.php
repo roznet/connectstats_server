@@ -23,6 +23,7 @@ $api_config = array(
 
     // Mock of Garmin's user id endpoint, served by the app container (docker/dev/mock).
     'url_user_id' => 'http://app/mock/garmin/user_id.php',
+    'url_user_registration' => 'http://app/mock/garmin/user_registration.php',
 
     'tmp' => '/var/www/tmp',
     'log' => '/var/www/log',

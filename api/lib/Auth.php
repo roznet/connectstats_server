@@ -116,9 +116,10 @@ class Auth {
      * @param string $userAccessTokenSecret OAuth access token secret
      * @param string|null $nonce Optional nonce (for verification), generated if null
      * @param string|null $timestamp Optional timestamp (for verification), generated if null
+     * @param string $method HTTP method of the request, part of the signature
      * @return string The complete Authorization header
      */
-    function authorization_header($full_url, $userAccessToken, $userAccessTokenSecret, $nonce = null, $timestamp = null) {
+    function authorization_header($full_url, $userAccessToken, $userAccessTokenSecret, $nonce = null, $timestamp = null, $method = 'GET') {
         $consumerKey = $this->api_config['consumerKey'];
         $consumerSecret = $this->api_config['consumerSecret'];
 
@@ -138,7 +139,6 @@ class Auth {
             $timestamp = (string)round(microtime(true));
         }
 
-        $method = 'GET';
         $version = '1.0';
 
         $oauth_params = array(

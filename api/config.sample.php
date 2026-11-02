@@ -50,6 +50,7 @@ $api_config = array(
     // The url to use for call back to the Garmin Health API
     // These are parameter to a test server can use alternative url
 	'url_user_id' => 'https://healthapi.garmin.com/wellness-api/rest/user/id',
+	'url_user_registration' => 'https://healthapi.garmin.com/wellness-api/rest/user/registration',
 
     // OPTIONAL Config
     // A path to a tmp directory to use, in case the default directory can't be used
