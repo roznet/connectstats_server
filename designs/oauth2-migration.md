@@ -15,6 +15,7 @@
 | Dormant users | **Deregister with a 1 year cutoff, before the exchange** | Stops Garmin pushing their activities, and leaves ~5k tokens to move instead of ~27k |
 | Moving existing installs to Bearer | **Not needed for the deadline** | Optional later |
 | App release | **One version supporting both, released early** | Signed-in users: the stored credential decides how to sign. New logins: a server setting picks the flow, so OAuth 2.0 can be turned on, or back off, without an App Store release |
+| Server release | **Handles both, deployed before Garmin's conversion** | No global switch: each case decides from the data (see below). Until the conversion nobody has OAuth 2.0 tokens, so everything keeps using OAuth 1.0 and nothing changes for users |
 
 ## How identity works
 
@@ -28,6 +29,20 @@ Two separate relationships use the Garmin token today, plus webhooks:
 
 **Consequence:** the OAuth 1.0 token and secret stop working at Garmin but remain the app's credentials with our server, like a username and password we own. They must never be removed while those app installs exist, and neither can the consumer key and secret in the server config.
 
+The server code handles both from the start, and is inactive until Garmin converts the app:
+
+| Part | Behaviour | Before the conversion |
+|---|---|---|
+| Calling Garmin | Bearer if the user has OAuth 2.0 tokens, otherwise OAuth 1.0 | Nobody has OAuth 2.0 tokens: all OAuth 1.0 |
+| Webhooks | Find the user by `userId`, with or without a token | Old-format webhooks keep working |
+| App → server auth | Accepts Bearer and OAuth 1.0 signatures | Only OAuth 1.0 arrives |
+| OAuth 2.0 login endpoint | Off until `oauth2ClientSecret` is in the config | Unused |
+| Scheduled refresh | Only acts on OAuth 2.0 tokens | Nothing to do |
+| Exchange script | Run by hand | Not run |
+| `garmin_login` setting | Not set means OAuth 1.0 | Not set |
+
+Turning it on: add the secret to the config, test on one's own account, set `garmin_login`, run the exchange.
+
 ## Garmin's process
 
 From Garmin's migration guide:
@@ -40,7 +55,8 @@ From Garmin's migration guide:
 ## Order constraints
 
 - **Deregister before the exchange**: deregistering is signed with the OAuth 1.0 token.
-- **Webhook changes live before the first exchange**: a user's format changes 30 days later, and both formats arrive during the transition.
+- **Webhook changes live before requesting the conversion**: Garmin's guide asks partners to be ready for the new format first. A user's format actually changes 30 days after their exchange, and both formats arrive during the transition.
+- **Ask Garmin early**: its answers can change the code, and how long a conversion takes is unknown. According to the guide, converting doesn't immediately affect existing users, and new users can still connect with OAuth 1.0.
 - **Exchange by about 1 Dec**: this leaves the full 30 day overlap before retirement. A token not exchanged by 31 Dec probably can't be: that user has to log in again, on an app version with OAuth 2.0.
 - **App released before Garmin's conversion is needed**: with the setting off it behaves as today, so it can ship early. Until the conversion its OAuth 2.0 login can only be tested against the mock, so leave time for a fix release.
 - **Setting on before telling Garmin the migration is complete**, and before 31 Dec, when OAuth 1.0 login stops working. This needs the app live, Garmin's conversion and the server's login endpoint.
@@ -51,12 +67,12 @@ Target dates, proposed 2026-11-02.
 
 | By | Step |
 |---|---|
-| Now | Deregistration: deploy and run |
-| 9 Nov | Ask Garmin to convert the app, `garmin_dev` key first if possible; get answers to the open questions |
-| 16 Nov | App submitted: supports both flows, setting off |
-| 20 Nov | Server work deployed: webhooks, token storage and refresh, login, exchange script |
+| Now | Email Garmin the open questions. Deregistration: deploy and run |
+| 9 Nov | Webhook changes deployed, then request the conversion, `garmin_dev` key first if possible |
+| 16 Nov | Rest of the server deployed, inactive: token storage and refresh, login, exchange script |
+| 16 Nov | App submitted: supports both flows, setting off. Ideally after one real test login, if the conversion has come through |
 | Once converted | Test OAuth 2.0 login on one's own account, then turn the setting on |
-| ~1 Dec | Token exchange on all kept tokens |
+| ~1 Dec | Token exchange on all kept tokens. **If the conversion is late, this date is the one at risk**: the later it runs, the less overlap before retirement |
 | Before 31 Dec | Setting on for good, tell Garmin the migration is complete |
 | ~1 Jan | Old-format webhooks should have stopped; remove what's no longer needed (see Cleanup) |
 
@@ -167,8 +183,10 @@ Watch during the transition: 401 rate, `error_*` tables, refresh failures, activ
 
 ## Open questions for Garmin
 
+- How long does a conversion take?
 - Does converting the app affect the `garmin_dev` key, and can it be converted first to test?
-- Does deregistration return a 204 for this endpoint, and what does it return for a token that's already dead?
+- Does anything change in webhooks at conversion, or only 30 days after each user's exchange? What does the new format look like?
+- Does deregistration return a 204 for this endpoint, and what does it return for a token that's already dead? Is there a rate limit for ~21.7k calls?
 - Can a Garmin user with several OAuth 1.0 tokens end up with several OAuth 2.0 tokens? Is exchanging one enough?
 - Token lifetimes, and does a refresh replace the refresh token? (the 24 hour / 90 day values come from an example response)
 - After 31 Dec, can a token that wasn't exchanged still be exchanged?
