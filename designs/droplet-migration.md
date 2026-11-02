@@ -263,19 +263,26 @@ State on 2026-11-01 evening: new box replicating (0 s behind) with `app`/`worker
 - [x] Test stack removed (2026-11-01): `docker-compose.test.yml`, `UPSTREAM` and `TEST_*` out of `compose.env`, `db-test`/`app-test`/`worker-test` and their tmp volume removed, `test/` deleted (Volume 12 GB used, 36 GB free). `db` restarted: buffer pool 1536M, replication resumed by itself (0 s behind, still `super_read_only`). The test hostname's `/prod` returns 502 until `app` starts
 - [x] Final config (2026-11-01): `'sandbox' => false` (`queue_autostart => false` kept). Harmless before the cutover: `app` and `worker` are stopped. `SITE_ADDRESSES` stays the test hostname until the DNS switch
 
-**Cutover (short window, queue paused rather than stopped for clients)**
+**Cutover: done 2026-11-02, 20:16–20:43 UTC.** Followed the private runbook.
 
-- [ ] Manual DigitalOcean snapshot of the new box's Volume (delete it once the cutover has settled)
-- [ ] **Put the production Garmin endpoints on hold** (Garmin's endpoint configuration tool; Garmin queues notifications while on hold and delivers them on release, used before for server changes). No webhook arrives during the switch, so none can land on the wrong box
-- [ ] Start `app` on the new box (not `worker`): it can't write yet (replica is read-only), so do the proxy switch and promotion back to back
-- [ ] Old Apache reverse-proxies `/prod/` (API **and** bugreport) to the new box first: with the queue self-starting, any request the old box still handles would restart its workers. It proxies over HTTPS to the **test hostname** (the only certificate the new box has before DNS moves). **OAuth signatures** are checked against a URL rebuilt from `Host`, so Caddy sets `Host: connectstats.app` for `/prod/` requests coming from the old box's address only (deployment snippet imported into the `/prod/*` handle). Config prepared and syntax-checked the day before, enabled with `a2enconf` at this step. Static content stays on the old box until DNS moves
-- [ ] On the old box: `queuectl.php stop`, wait for running tasks to finish, disable its cron jobs; final rsync of `/var/www/bugs` to the Volume. Unfinished tasks stay in `tasks` and replicate over
-- [ ] Wait for the replica to catch up (`Seconds_Behind_Source = 0`, executed position = old box's binlog position), then `STOP REPLICA; RESET REPLICA ALL`, `SET GLOBAL super_read_only = OFF, read_only = OFF`, mark the replicated `queues` rows as stopped (their PIDs belong to the old box: else `queuectl` tries `kill -9` on them, harmless but noisy), `docker compose up -d worker`; the unfinished tasks get picked up
-- [ ] Verify right away: `test.py smoke --base-url https://connectstats.app/prod` (through the old box's proxy), a webhook arriving and processed on the new box (`cache_activities.processed_ts`), the app from a device
-- [ ] Switch DNS to the new box: A record to the new IP, **delete the AAAA** (new box is IPv4-only). Then add `connectstats.app` to `SITE_ADDRESSES`, recreate Caddy (`--no-deps`), check the certificate is issued. The proxy keeps covering clients until DNS propagates
-- [ ] Once `https://connectstats.app/prod/api/status/api` answers from the new box with a valid certificate: **release the Garmin hold** and watch the backlog arrive and get processed (`cache_activities`, queue)
-- [ ] After DNS settled: remove `docker-compose.migration.yml` from `COMPOSE_FILE` (drops `replica.cnf`: no more read-only/replication filters) and `SOURCE_SSH*`, restart `db`; stop the tunnel. Drop the `repl`/`migrate` MySQL users on the old box and `~/.migration`
-- [ ] Keep the old droplet at least two weeks; rollback = reverse replication (new → old, the new box keeps binlogs 14 days) or replay rows received on the new box, then DNS back. Then destroy it (snapshot first)
+- [x] Manual snapshot of the Volume; production Garmin endpoints **on hold** (*enabled* stays ticked): webhooks stopped within seconds
+- [x] `app` started on the new box; old Apache proxies `/prod/` to the test hostname, Caddy restores `Host` for that source only: `Via: 1.1 Caddy` from the old box's URL, signed requests valid
+- [x] Old box: `queuectl stop` (all `dead:stopped` in ~3 s), cron disabled, final binlog position stable, replica at exactly that position
+- [x] **Promoted 20:22:00 UTC**: `STOP REPLICA; RESET REPLICA ALL`, read-only off, `worker` started: 5 queues. Writes failed for about 3.5 minutes (proxy on 20:18:30 to promotion), only client requests since Garmin was on hold
+- [x] Verified via the old box: status check and signed search, the owner's app on a phone
+- [x] DNS: A to the new box, AAAA deleted. Waited for the AAAA to leave every nameserver (Let's Encrypt prefers IPv6), then added `connectstats.app` to `SITE_ADDRESSES`: certificate in ~1.5 min (TLS-ALPN)
+- [x] Garmin hold released 20:27: backlog (14 activities, 9 files) processed, FIT files in S3, weather stored, queue empty, no errors
+- [x] Push notifications: 200 from production APNs for real users' activities (20:36). A debug build's sandbox token gets `400 BadDeviceToken` from production APNs: expected
+- [x] Migration overlay removed (second short Garmin hold, 20:41): `db` recreated without `replica.cnf`, ~10 s down, tunnel gone, read-only stays off across restarts
+
+**After the cutover**
+
+- [ ] Next day: check the first backup after the switch and the overnight jobs. Remove the Caddy relay rule and disable the old Apache's proxy once its log shows no more `/prod` traffic
+- [ ] Drop the `repl`/`migrate` MySQL users on the old box and its credentials; delete the seed dump on the Volume; delete the pre-cutover snapshot after a few days
+- [ ] Test restoring a backup dump
+- [ ] Dev Garmin app: hold or remove its endpoints, then drop the `/dev` 200 sink
+- [ ] Raise the DNS TTL to 3600 after about a week. Remove the test hostname when no longer wanted (backups connect through it: change them first)
+- [ ] Keep the old droplet at least two weeks (separate hostname for SSH); rollback = reverse replication (new → old, the new box keeps binlogs 14 days) or replay rows received on the new box, then DNS back. Then snapshot, destroy, and remove its addresses from the SPF record
 
 ## Releasing and Testing Prod
 
@@ -307,3 +314,4 @@ State on 2026-11-01 evening: new box replicating (0 s behind) with `app`/`worker
 - **2026-10-22**: PHP 8 evaluation written up ([php-upgrade](php-upgrade.md), branch `claude/php-upgrade-plan`)
 - **2026-10-25**: Committed missing `Auth.php`, dev droplet fixed
 - **2026-11-01**: Prod reset to master. Sizing done; decided new droplet + Docker. First monthly inactive cleanup ran (deleted ~400k activities). Found and fixed cleanup bugs 1–7 (working tree, dry-run verified against prod DB, not deployed). S3 measured (872.5 GB, 7.32M objects). Added S3 bulk delete; tested on 5 orphaned files. Cleanup fixes deployed to dev and prod. Inactive users with data went from 1,046 to 3,016 within an hour of the cleanup: Garmin keeps pushing for dormant users. Real-device refresh on prod OK (new activity, FIT file and weather served). Orphaned-assets backlog cleared: 4.73M rows and S3 files deleted. Decided: data on a DigitalOcean Volume, database moved by replication (seed dump, no prod downtime); old box's binlog settings checked and suitable. Full table inventory and pruning proposals added; queue/job design for Docker (separate `worker`, no self-start from web requests)
+- **2026-11-02**: Readiness checks: S3 at 351 GB / 2.58M objects; found Docker not ordered after the Volume mount (fixed, reboot tested). **Cutover done 20:16–20:43 UTC**: prod runs on the new droplet (PHP 8.5, MySQL 8.4, Docker). Old box idle, relaying stragglers
