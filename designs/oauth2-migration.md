@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-02):** nothing built except the deregistration script, which is committed but not yet run. Garmin has not been contacted.
+**Status (2026-11-03):** nothing built except the deregistration script, which is committed but not yet run. Open questions emailed to Garmin 2026-11-03, no reply yet. Conversion not requested yet.
 
 ## Decisions
 
@@ -52,6 +52,18 @@ From Garmin's migration guide:
 3. The OAuth 1.0 token stays valid for **30 days** after its exchange. Then that user's webhooks switch to the new format: **no `userAccessToken`, `userId` only**, and an extra `token` parameter on the callback URL.
 4. Once we complete the migration, all new connections must use OAuth 2.0.
 
+From Garmin's *OAuth2.0 PKCE Specification*:
+
+- **Code exchange and refresh must run on our backend.** The client secret must not be on a device, and there's no secretless flow. Token endpoint: `https://diauth.garmin.com/di-oauth2-service/oauth/token`. The examples send the client credentials as a Basic auth header, while the parameter list shows them as fields: test both.
+- **Lifetimes:** access token 24 hours (`expires_in` 86400, subtract 600 seconds or more), refresh token 3 months (`refresh_token_expires_in` 7775998).
+- **Every refresh returns a new refresh token**, and the next refresh uses the latest one.
+- **`userId` is stable** across tokens, re-logins and programs of the same licensee. The spec says PUSH and PING notifications carry the user ID and client ID "in the header", while its deregistration and permission examples have `userId` in the body. To confirm for activity and file webhooks.
+- **Deregistration webhook:** `{"deregistrations":[{"userId":"..."}]}`. It's also sent when **we** call DELETE.
+- **Bearer endpoints:** `https://apis.garmin.com/partner-gateway/rest/user/id`, `/user/registration` (DELETE) and `/user/permissions`.
+- **DELETE is required** when an app offers a disconnect, or anywhere a user would reasonably believe they're removing consent.
+- **Users can turn off sharing** in Garmin Connect, per permission. The token stays valid but no data flows. A `userPermissionsChange` webhook reports changes.
+- **Testing tool:** `https://apis.garmin.com/tools/oauth2/authorizeUser`. Webhooks are configured at `https://apis.garmin.com/tools/login`.
+
 ## Order constraints
 
 - **Deregister before the exchange**: deregistering is signed with the OAuth 1.0 token.
@@ -67,7 +79,8 @@ Target dates, proposed 2026-11-02.
 
 | By | Step |
 |---|---|
-| Now | Email Garmin the open questions. Deregistration: deploy and run |
+| Done 3 Nov | Email Garmin the open questions |
+| Now | Deregistration: deploy and run |
 | 9 Nov | Webhook changes deployed, then request the conversion, `garmin_dev` key first if possible |
 | 16 Nov | Rest of the server deployed, inactive: token storage and refresh, login, exchange script |
 | 16 Nov | App submitted: supports both flows, setting off. Ideally after one real test login, if the conversion has come through |
@@ -89,6 +102,11 @@ Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 u
 
 Deregistered users keep their rows. Coming back, they get a 401, and the app asks for a login.
 
+Two things to watch on the first calls:
+
+- **URL:** the script is set to `healthapi.garmin.com/wellness-api/rest/user/registration`, the same base as `url_user_id`. The PKCE spec has `apis.garmin.com/partner-gateway/rest/user/registration`, without saying whether OAuth 1.0 calls can use it. If `--limit=1` fails, try that URL: it's only a config change.
+- **Webhooks:** Garmin notifies us of each DELETE, so expect up to ~21.7k deregistration webhooks during the run. The handler clears the same secret again, which should be harmless. Not tested at that volume.
+
 ### 2. Webhooks (server)
 
 The code assumes `userAccessToken` is always present. Without it:
@@ -100,30 +118,31 @@ The code assumes `userAccessToken` is always present. Without it:
 | FIT download (`userAccessToken` lookup before `get_url_data()`) | Fails with "unregistered user" |
 | `deregister_user()` | **Silently does nothing**: the token stays live |
 
+- [ ] Confirm where activity and file webhooks carry `userId`: body or header (see Garmin's process)
 - [ ] `process()`: `userId` required, `userAccessToken` optional
 - [ ] Add a lookup by `userId`, used wherever `user_info()` takes a webhook's token. Several rows can share a `userId`: pick the newest row with live Garmin credentials
 - [ ] Index `tokens.userId`
-- [ ] `deregister_user()`: handle `userId`, and clear the secret, Garmin tokens and server token on all that user's rows
+- [ ] `deregister_user()`: handle `{"deregistrations":[{"userId":"..."}]}`, and clear the secret, Garmin tokens and server token on all that user's rows
 - [ ] Check nothing depends on `activities.userAccessToken` being set, such as `search` with `activities_garmin_health` output
 - [ ] Test the callback URL with the extra `token` parameter. The download uses the URL unchanged and signs its query parameters, so it should work with both schemes
 
 ### 3. Token storage and calling Garmin (server)
 
 - [ ] Schema version bump in `ensure_schema()`. On `tokens`: `garmin_access_token`, `garmin_refresh_token`, `garmin_token_expires_at`, `garmin_refresh_expires_at`
-- [ ] `Auth::get_url_data()` and callers: use Bearer if the user has an OAuth 2.0 token, otherwise OAuth 1.0
-- [ ] Refresh the access token when expired. Take a lock (`GET_LOCK` per user) and re-read after getting it: queue workers run concurrently, and a refresh may replace the refresh token
-- [ ] **Scheduled refresh job**: on-demand refresh isn't enough. Downloads are skipped for users idle over 45 days, so their tokens would never refresh and the refresh token would expire (about 90 days in Garmin's documented response; to confirm)
+- [ ] `Auth::get_url_data()` and callers: use Bearer if the user has an OAuth 2.0 token, otherwise OAuth 1.0. Bearer calls to Garmin's user endpoints use `partner-gateway`
+- [ ] Refresh the access token 600 seconds before it expires. Take a lock (`GET_LOCK` per user) and re-read after getting it: queue workers run concurrently, and every refresh replaces the refresh token, so a lost update loses the user's access. Store the response before doing anything else
+- [ ] **Scheduled refresh job**: on-demand refresh isn't enough. Downloads are skipped for users idle over 45 days, so their tokens would never refresh and the refresh token would expire after 3 months. Refresh anything within about 30 days of `garmin_refresh_expires_at`
 - [ ] Refresh failing for good: clear the row's app credentials, so the app gets a 401 and asks for a login, as with deregistration. Log it
 
 ### 4. Login for new users (server + app)
 
 Flow:
 
-1. The app creates the PKCE verifier and challenge, and opens Garmin's authorization page with the `client_id`, challenge, `state` and redirect URI (`https://connect.garmin.com/oauth2Confirm`).
+1. The app creates the PKCE verifier and challenge, and opens Garmin's authorization page (`https://connect.garmin.com/oauth2Confirm`) with the `client_id`, challenge, `state` and redirect URI.
 2. Garmin redirects back with a `code`. The app checks `state`.
 3. The app sends `code`, `code_verifier` and `redirect_uri` to a new endpoint, by POST so they don't end up in URLs and logs.
-4. The server exchanges them using the client secret (`https://diauth.garmin.com/di-oauth2-service/oauth/token`), gets the `userId` with the new token (`url_user_id`), and creates or reuses the `users` row and adds a `tokens` row with no OAuth 1.0 token or secret.
-5. The server returns `token_id`, `cs_user_id` and a new `server_token`. The app keeps these in the Keychain. It never sees Garmin's tokens.
+4. The server exchanges them using the client secret (`https://diauth.garmin.com/di-oauth2-service/oauth/token`), gets the `userId` and permissions with the new token, and creates or reuses the `users` row and adds a `tokens` row with no OAuth 1.0 token or secret.
+5. The server returns `token_id`, `cs_user_id`, a new `server_token`, and whether activity export was granted. The app keeps the credentials in the Keychain. It never sees Garmin's tokens.
 
 Server:
 
@@ -132,6 +151,7 @@ Server:
 - [ ] `server_token`: 32 random bytes; store only its SHA-256 (`tokens.server_token_hash`), so a database leak doesn't expose it
 - [ ] `Auth::authenticate_header()`: accept `Bearer`, and check the row matches `token_id`. Every endpoint using it gets this automatically (`search`, `json`, `file`, `sync`, `validateuser`, `notifications/register`)
 - [ ] Check code that assumes `userAccessToken` is set on a `tokens` row (`user_info()`, `Auth::authorization_header_for_token_id()`, `api/garmin/sign.php`)
+- [ ] Permissions: read `/user/permissions` at login. Decide whether to also store `userPermissionsChange` webhooks: without them, a user who later turns off sharing just stops getting data
 - [ ] `/api/status/api` returns the setting from the config: `{"status":1, "garmin_login":"oauth2"}`. Not set means OAuth 1.0
 
 App, one version supporting both:
@@ -142,9 +162,12 @@ Signed-in users need no mode: a stored `server_token` means Bearer, otherwise OA
 - [ ] `isSignedIn`: currently requires a secret, must accept a `server_token` instead
 - [ ] `preparedUrlRequest:params:`: Bearer if the app has a `server_token`, otherwise the existing OAuth 1.0 signing
 - [ ] `signout`: also clears the `server_token`
+- [ ] New login without `ACTIVITY_EXPORT`: explain why no activities will arrive
 - [ ] 401 keeps forcing a new login (already the case, in `checkNoErrors`)
 - [ ] `GCConnectStatsRequestAPICheck.swift`: read `garmin_login` and save it, like `redirect`. The app calls this just before login on each sync
 - [ ] Fresh install: make sure login waits for the status check. If there's no answer, use the last saved value, or OAuth 1.0 if none
+
+**Logout (to decide):** "Tap to logout" in the app only clears local data, while Garmin requires the DELETE call wherever a user would reasonably believe they're removing consent. It's in the open questions below. If it applies: a new authenticated server endpoint that deregisters the user, called by the app before clearing its data.
 
 Versions without this only have OAuth 1.0 login. They keep working for anyone signed in, but after 31 Dec anyone signed out, including deregistered users, has to update first.
 
@@ -168,7 +191,7 @@ Versions without this only have OAuth 1.0 login. They keep working for anyone si
 There's no dev instance on the new droplet: test on the local stack (`docker compose`, see [testing](testing.md)).
 
 - **Local:** extend the Garmin mock (`docker/dev/mock/garmin`) with token exchange, token and refresh endpoints, and old and new webhook formats. Add `test_full.py` cases: old-format webhook, new-format webhook, mixed batch, Bearer auth (valid, wrong `token_id`, invalid), OAuth 1.0 auth after exchange, refresh, refresh failure, deregistration by `userId`
-- **Real Garmin:** the `garmin_dev` key, if Garmin converts it first, with a test account through login, exchange and a real activity
+- **Real Garmin:** the `garmin_dev` key, if Garmin converts it first, with a test account through login, exchange and a real activity. Garmin's OAuth 2.0 tool can check the server's token handling before the app is ready
 - **Prod:** own account first (see Work 5)
 
 Watch during the transition: 401 rate, `error_*` tables, refresh failures, activities with no `cs_user_id`, FIT download failures.
@@ -185,15 +208,15 @@ Watch during the transition: 401 rate, `error_*` tables, refresh failures, activ
 
 - How long does a conversion take?
 - Does converting the app affect the `garmin_dev` key, and can it be converted first to test?
-- Does anything change in webhooks at conversion, or only 30 days after each user's exchange? What does the new format look like?
-- Does deregistration return a 204 for this endpoint, and what does it return for a token that's already dead? Is there a rate limit for ~21.7k calls?
+- Does anything change in webhooks at conversion, or only 30 days after each user's exchange?
+- What do new-format activity and file webhooks look like? Is `userId` in the body or in a header?
+- Is deregistering ~21.7k inactive users acceptable, and at what rate? Is 204 the expected response, and what does a token that's already dead return?
+- Which URL should OAuth 1.0 signed calls use for deregistration: `healthapi.garmin.com/wellness-api` or `apis.garmin.com/partner-gateway`?
 - Can a Garmin user with several OAuth 1.0 tokens end up with several OAuth 2.0 tokens? Is exchanging one enough?
-- Token lifetimes, and does a refresh replace the refresh token? (the 24 hour / 90 day values come from an example response)
 - After 31 Dec, can a token that wasn't exchanged still be exchanged?
-- When a user disconnects under OAuth 2.0, what does the deregistration webhook contain?
-- Which host and base path does each endpoint use? We currently call `healthapi.garmin.com`, while the guide uses `apis.garmin.com`
+- Does a logout that only clears the app's local data require the DELETE call?
 
 ## References
 
-- Garmin's *OAuth 1 to OAuth 2 Migration* guide (Developer Portal); questions to connect-support@developer.garmin.com
+- Garmin's *OAuth 1 to OAuth 2 Migration* guide and *OAuth2.0 PKCE Specification* (Developer Portal); questions to connect-support@developer.garmin.com
 - [authentication](authentication.md), [garmin-integration](garmin-integration.md), [droplet-migration](droplet-migration.md)
