@@ -138,6 +138,12 @@ class sql_helper {
 		}
 		return( strftime( "%Y-%m-%d", $timestamp ) );
 	}
+	/**
+	 *  Escape a value to use inside a quoted string in a query.
+	 */
+	function escape( $value ){
+		return $this->connection->real_escape_string( is_array( $value ) ? json_encode( $value ) : (string)$value );
+	}
 	function format_sqlvalue( $field, $value ){
 		$this->init_tableInfo();
 		$rv = "";
@@ -148,12 +154,11 @@ class sql_helper {
 		}elseif( $type == "datetime" ){
 			$rv = $this->value_to_sqldatetime( $value );
 		}elseif( $strtype ){
-            $rv = $this->connection->real_escape_string( $value );
-            $rv = $value;
+            $rv = $this->escape( $value );
 		}elseif( is_numeric( $value ) ){
 			$rv = $value;
 		}else{
-			$rv = $this->connection->real_escape_string( $value );
+			$rv = $this->escape( $value );
 		};
 		if( !is_numeric( $value ) || $type == "datetime" || $strtype ){
 			$rv = "'$rv'";
@@ -383,6 +388,18 @@ class sql_helper {
     // Update and modify data
     //
     //
+	/**
+	 *  The type of a column, from a schema definition or from DESCRIBE, comparable with each other:
+	 *  without attributes like DEFAULT or AUTO_INCREMENT, which DESCRIBE doesn't report as part of the
+	 *  type, and without integer display widths, which MySQL 8 no longer reports.
+	 */
+	function normalized_column_type( $def ){
+		$type = strtoupper( trim( $def ) );
+		if( preg_match( '/^[A-Z]+(\([^)]*\))?( UNSIGNED)?/', $type, $matches ) ){
+			$type = $matches[0];
+		}
+		return preg_replace( '/^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)\(\d+\)/', '$1', $type );
+	}
 	function create_or_alter( $table, $defs, $rebuild = false, $temporary = false ){
         $this->init_tableInfo();
         $create = false;
@@ -410,14 +427,14 @@ class sql_helper {
         }else{
             foreach( $defs as $col => $def ){
                 if( isset( $this->tableInfo[ $table ][ $col ] ) ){
-                    $existing = strtoupper( $this->tableInfo[ $table ][ $col ] );
-                    $candidate = strtoupper( str_replace( ' PRIMARY KEY', '', $def ) );
-                    $candidate = strtoupper( str_replace( ' AUTO_INCREMENT', '', $candidate ) );
+                    $existing = $this->normalized_column_type( $this->tableInfo[ $table ][ $col ] );
+                    $candidate = $this->normalized_column_type( $def );
                     if( $existing != $candidate ){
                         if( $this->verbose ){
                             $this->log( 'INFO', "%s.%s: [%s] != [%s]", $table, $col, $existing, $candidate );
                         }
-                        $query = sprintf( 'ALTER TABLE `%s` CHANGE COLUMN `%s` `%s` %s', $table, $col, $col, $candidate );
+                        // Keep the rest of the definition, such as AUTO_INCREMENT or DEFAULT: CHANGE COLUMN replaces it all
+                        $query = sprintf( 'ALTER TABLE `%s` CHANGE COLUMN `%s` `%s` %s', $table, $col, $col, str_replace( ' PRIMARY KEY', '', $def ) );
                         $this->execute_query( $query );
                     }
                 }else{

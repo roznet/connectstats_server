@@ -280,7 +280,7 @@ class Auth {
         }
 
         $userAccessToken = $maps['oauth_token'];
-        $escaped_token = $this->sql->connection->real_escape_string($userAccessToken);
+        $escaped_token = $this->sql->escape($userAccessToken);
         $row = $this->sql->query_first_row(
             "SELECT userAccessTokenSecret, token_id FROM tokens WHERE userAccessToken = '$escaped_token'"
         );

@@ -672,7 +672,7 @@ class GarminProcess {
                 $userId = $userjson['userId'];
                 $values['userId'] = $userId;
                 
-                $prev = $this->sql->query_first_row( "SELECT * FROM users WHERE userId = '$userId'" );
+                $prev = $this->sql->query_first_row( sprintf( "SELECT * FROM users WHERE userId = '%s'", $this->sql->escape( $userId ) ) );
                 
                 if( $prev ){
                     $cs_user_id = $prev['cs_user_id'];
@@ -702,7 +702,7 @@ class GarminProcess {
         }
         $token_id = $this->sql->insert_id();
         
-        $query = sprintf( "SELECT userAccessToken,userId,token_id,cs_user_id FROM tokens WHERE userAccessToken = '%s'", $userAccessToken );
+        $query = sprintf( "SELECT userAccessToken,userId,token_id,cs_user_id FROM tokens WHERE userAccessToken = '%s'", $this->sql->escape( $userAccessToken ) );
 
         $rv = $this->sql->query_first_row( $query );
 
@@ -752,7 +752,7 @@ class GarminProcess {
     }
     
     function user_info( $userAccessToken ){
-        $query = sprintf( "SELECT * FROM tokens WHERE userAccessToken = '%s'", $userAccessToken );
+        $query = sprintf( "SELECT * FROM tokens WHERE userAccessToken = '%s'", $this->sql->escape( $userAccessToken ) );
 
         $rv = $this->sql->query_first_row( $query );
 
@@ -765,7 +765,7 @@ class GarminProcess {
      */
     function user_info_for_garmin_user_id( $userId ){
         $query = sprintf( "SELECT * FROM tokens WHERE userId = '%s' ORDER BY cs_user_id IS NULL, userAccessTokenSecret IS NULL, token_id DESC LIMIT 1",
-                          $this->sql->connection->real_escape_string( $userId ) );
+                          $this->sql->escape( $userId ) );
 
         return $this->sql->query_first_row( $query );
     }
@@ -959,7 +959,7 @@ class GarminProcess {
                             if( $callbackURL ) {
                                 // If it has a callback URL, find out the file_id for matching summaryId so we can
                                 // later start a command to get the data from the callback url
-                                $found = $this->sql->query_first_row( sprintf( "SELECT file_id FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
+                                $found = $this->sql->query_first_row( sprintf( "SELECT file_id FROM `%s` WHERE summaryId = '%s'", $table, $this->sql->escape( $row['summaryId'] ) ) );
                                 if( $found ){
                                     array_push( $command_ids, $found['file_id'] );
                                 }
@@ -1463,7 +1463,8 @@ class GarminProcess {
         
         $this->status->clear('assets');
 
-        $query = sprintf( "SELECT * FROM %s WHERE file_id = %s", $table, $cbid );
+        $cbid = intval( $cbid );
+        $query = sprintf( "SELECT * FROM %s WHERE file_id = %d", $table, $cbid );
         $row = $this->sql->query_first_row( $query );
         if( ! $row ){
             $this->status->error( sprintf( 'sql error %s', $this->sql->lasterror ) );
@@ -1871,10 +1872,10 @@ class GarminProcess {
                 if( isset( $json['startTimeInSeconds'] ) && isset( $json['startTimeInSeconds'] ) && isset( $row['userId'] ) ){
                     $startTime = intval($json['startTimeInSeconds']);
                     $endTime = $startTime + intval($json['durationInSeconds']);
-                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userId = '%s'",  $startTime, $endTime, $this->sql->connection->real_escape_string( $row['userId'] ) );
+                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userId = '%s'",  $startTime, $endTime, $this->sql->escape( $row['userId'] ) );
                     $found = $this->sql->query_as_array( $query );
 
-                    $parent_row = $this->sql->query_first_row( sprintf( "SELECT activity_id FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
+                    $parent_row = $this->sql->query_first_row( sprintf( "SELECT activity_id FROM `%s` WHERE summaryId = '%s'", $table, $this->sql->escape( $row['summaryId'] ) ) );
                     if( isset( $parent_row['activity_id'] ) ){
                         foreach( $found as $child_row ){
                             // only check what does not have already parent_activity_id
@@ -1898,7 +1899,7 @@ class GarminProcess {
         //
         $cs_user_id = NULL;
         if( isset( $row['summaryId'] )){
-            $fullrow = $this->sql->query_first_row( sprintf( "SELECT * FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
+            $fullrow = $this->sql->query_first_row( sprintf( "SELECT * FROM `%s` WHERE summaryId = '%s'", $table, $this->sql->escape( $row['summaryId'] ) ) );
             if( $fullrow['cs_user_id'] ){
                 $cs_user_id = $fullrow['cs_user_id'];
             }
@@ -1910,7 +1911,7 @@ class GarminProcess {
             
                     if( ! isset( $userInfo['cs_user_id'] ) ){
                         // Check if use exists
-                        $userId = $row['userId'];
+                        $userId = $this->sql->escape( $row['userId'] );
                         $prev = $this->sql->query_first_row( "SELECT userId FROM users WHERE userId = '$userId'" );
                         if( ! $prev ){
                             $this->sql->insert_or_update( 'users', array( 'userId' => $userId ) );
@@ -1942,7 +1943,7 @@ class GarminProcess {
 
             // If we have userId and startTimeInSeconds, check if we find a row for the same in the other table
             if( $other_table && (isset( $row['userId'] ) && isset( $row['startTimeInSeconds' ] ) ) ){
-                $query = sprintf( "SELECT * FROM `%s` WHERE userId = '%s' AND startTimeInSeconds = %d", $other_table, $row['userId'], $row['startTimeInSeconds'] );
+                $query = sprintf( "SELECT * FROM `%s` WHERE userId = '%s' AND startTimeInSeconds = %d", $other_table, $this->sql->escape( $row['userId'] ), $row['startTimeInSeconds'] );
                 $found = $this->sql->query_as_array( $query );
 
                 // If we found 1, that means we should link them
@@ -1977,7 +1978,7 @@ class GarminProcess {
             }
         
             if( count( $to_set ) ){
-                $query = sprintf( "UPDATE `%s` SET %s WHERE summaryId = '%s'",  $table, implode( ', ', $to_set), $row['summaryId'] );
+                $query = sprintf( "UPDATE `%s` SET %s WHERE summaryId = '%s'",  $table, implode( ', ', $to_set), $this->sql->escape( $row['summaryId'] ) );
                 if( ! $this->sql->execute_query( $query ) ){
                     $this->log( "ERROR",  $this->sql->lasterror );
                 }
@@ -2001,7 +2002,7 @@ class GarminProcess {
         $res = $this->sql->query_as_array( "SELECT userId,COUNT(userId) FROM $table WHERE ISNULL(cs_user_id) GROUP BY userId LIMIT $limit" );
 
         foreach( $res as $one ){
-            $userId = $one['userId'];
+            $userId = $this->sql->escape( $one['userId'] );
 
             #$prev = $this->sql->query_first_row( "SELECT * FROM users WHERE userId = '$userId'" );
             $prev = $this->sql->query_first_row( "SELECT * FROM users" );

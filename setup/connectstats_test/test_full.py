@@ -184,6 +184,81 @@ def _test_deregistration(client: ConnectStatsClient, config: Config, suite: Test
     suite.check(live == {"dereg-b2", "dereg-c1"}, "deregistration ignores SQL in userId", f"status={resp.status}, live={live}")
 
 
+def _test_sql_injection(client: ConnectStatsClient, config: Config, suite: TestSuite, garmin_dir: str) -> None:
+    now = int(time.time())
+    template = copy.deepcopy(_load_sample("sample-backfill-activities.json")["activities"][0])
+    template["startTimeInSeconds"] = now + 3000
+    template.pop("userAccessToken", None)
+
+    # Without escaping, this token matches the first row of tokens and links the activity to that user
+    by_token = dict(template, summaryId="9200000001", userId="sql-user", userAccessToken="x' OR '1'='1")
+    by_user = dict(template, summaryId="9200000002", userId="x' OR '1'='1", startTimeInSeconds=now + 3001)
+    by_summary = dict(template, summaryId="sql'summary", userId="sql-user2", startTimeInSeconds=now + 3002)
+
+    suite.start_test("hostile notification accepted")
+    resp = client.post_json("api/garmin/activities", {"activities": [by_token, by_user, by_summary]})
+    suite.check(resp.ok, "hostile notification accepted", f"status={resp.status}")
+
+    _wait_for_caches(config, garmin_dir, suite)
+
+    rows = dict((r[0], (r[1], r[2])) for r in _db_query(
+        config, "SELECT summaryId, cs_user_id, userId FROM activities WHERE summaryId IN ('9200000001','9200000002','sql''summary')"))
+    suite.start_test("hostile token doesn't link to another user")
+    suite.check("9200000001" in rows and rows["9200000001"][0] is None, "hostile token doesn't link to another user", f"got {rows}")
+    suite.start_test("hostile userId stored as is, not linked")
+    suite.check(rows.get("9200000002") == (None, "x' OR '1'='1"), "hostile userId stored as is, not linked", f"got {rows}")
+    suite.start_test("quote in summaryId stored as is")
+    suite.check("sql'summary" in rows, "quote in summaryId stored as is", f"got {rows}")
+
+
+def _test_schema_upgrade(client: ConnectStatsClient, config: Config, suite: TestSuite, api_dir: str) -> None:
+    def auto_increment_count() -> int:
+        return _db_query(config, "SELECT COUNT(*) FROM information_schema.columns "
+                                 "WHERE table_schema = DATABASE() AND extra LIKE '%%auto_increment%%'")[0][0]
+
+    before = auto_increment_count()
+
+    # A version older than the code makes the next request apply the schema again
+    _db_execute(config, "DELETE FROM `schema`")
+    _db_execute(config, "INSERT INTO `schema` (version) VALUES (1)")
+    resp = client.post_json("api/garmin/deregistration", {"deregistrations": []})
+
+    suite.start_test("schema upgrade keeps AUTO_INCREMENT")
+    after = auto_increment_count()
+    suite.check(resp.ok and before > 0 and after == before, "schema upgrade keeps AUTO_INCREMENT",
+                f"status={resp.status}, before={before}, after={after}")
+
+    suite.start_test("insert works after schema upgrade")
+    _db_execute(config, "INSERT INTO users (userId) VALUES ('after-schema-upgrade')")
+    suite.check(True, "insert works after schema upgrade")
+
+    # Real changes: a new column and a larger column, on a table of its own
+    script = (
+        "include_once('../shared.php');"
+        "$p = new GarminProcess();"
+        "$p->sql->create_or_alter('test_alter', ["
+        "'id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY', 'name' => 'VARCHAR(8)',"
+        "'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP']);"
+        "$p->sql->execute_query(\"INSERT INTO test_alter (name) VALUES ('first')\");"
+        "$p->sql->create_or_alter('test_alter', ["
+        "'id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY', 'name' => 'VARCHAR(16)',"
+        "'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP', 'added' => 'BIGINT(20) UNSIGNED']);"
+        "$p->sql->execute_query(\"INSERT INTO test_alter (name) VALUES ('second')\");"
+    )
+    result = subprocess.run(["php", "-r", script], cwd=os.path.join(api_dir, "garmin"), capture_output=True, text=True, timeout=60)
+    columns = dict((r[0], (r[1], r[2])) for r in _db_query(
+        config, "SELECT column_name, column_type, extra FROM information_schema.columns "
+                "WHERE table_schema = DATABASE() AND table_name = 'test_alter'"))
+    count = _db_query(config, "SELECT COUNT(*) FROM test_alter")[0][0] if columns else 0
+    _db_execute(config, "DROP TABLE IF EXISTS test_alter")
+
+    suite.start_test("column change applied, rest kept")
+    ok = (columns.get("name", ("",))[0] == "varchar(16)" and "added" in columns
+          and "auto_increment" in columns.get("id", ("", ""))[1]
+          and "on update" in columns.get("ts", ("", ""))[1].lower() and count == 2)
+    suite.check(ok, "column change applied, rest kept", f"columns={columns}, rows={count}, stderr={result.stderr[:200]}")
+
+
 def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
     """Run the full destructive integration test."""
 
@@ -341,5 +416,11 @@ def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
     # 9. Deregistration by token and by userId
     _test_deregistration(client, config, suite)
 
-    # 10. Run schema checks
+    # 10. Hostile values in notifications
+    _test_sql_injection(client, config, suite, garmin_dir)
+
+    # 11. Schema upgrade keeps AUTO_INCREMENT and only changes what changed
+    _test_schema_upgrade(client, config, suite, api_dir)
+
+    # 12. Run schema checks
     test_schema.run(config, suite)

@@ -27,7 +27,7 @@ if( $_GET['table'] ){
 
     if( isset( $keys[ $table ] ) && isset( $_GET[ $keys[ $table ] ] ) ){
         $key = $keys[$table];
-        $key_start = $_GET[ $keys[$table] ];
+        $key_start = intval( $_GET[ $keys[$table] ] );
         $key_offset = 0;
         if( isset( $_GET[ 'key_offset' ] ) ){
             $key_offset = intval( $_GET['key_offset'] );

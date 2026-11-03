@@ -175,7 +175,8 @@ class BugReport {
     }
 		
     function show_one_for_id($id){
-        $row = $this->sql->query_first_row( "SELECT * FROM gc_bugreports WHERE id = '$id'" );
+        $id = intval( $id );
+        $row = $this->sql->query_first_row( "SELECT * FROM gc_bugreports WHERE id = $id" );
         $other = $this->sql->query_first_row( sprintf( "SELECT COUNT(*) as n FROM gc_bugreports WHERE commonid=%d", $row['commonid'] ));
         print '<table>';
         print '<tr><td><h4>Application</h4></td><td>';

@@ -210,7 +210,7 @@ foreach ($to_process as $i => $t) {
     list($status, $body) = garmin_delete($process, $url, $t['userAccessToken'], $t['userAccessTokenSecret']);
 
     if ($status >= 200 && $status < 300) {
-        $escaped = $process->sql->connection->real_escape_string($t['userAccessToken']);
+        $escaped = $process->sql->escape($t['userAccessToken']);
         if (!$process->sql->execute_query("UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = '$escaped'")) {
             log_msg("ERROR: token_id=%d deregistered but not updated (%s), stopping", $token_id, $process->sql->lasterror);
             exit(1);

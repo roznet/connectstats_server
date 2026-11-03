@@ -151,10 +151,10 @@ class BugReport
     {
         // Display control
         if (isset($_GET['id'])) {
-            $this->new_id = $_GET['id'];
+            $this->new_id = intval($_GET['id']);
             if (isset($_POST['description']) && $_POST['description']) {
 
-                $this->row = array('description' =>  $this->sql->connection->real_escape_string($_POST['description']), 'id' => $this->new_id);
+                $this->row = array('description' =>  $_POST['description'], 'id' => $this->new_id);
                 if (isset($_POST['email']) && $_POST['email']) {
                     $this->row['email'] = $_POST['email'];
                 }

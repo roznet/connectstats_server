@@ -38,7 +38,7 @@ if( isset( $_GET['id'] ) ){
     include('config_bugreport.php');
 
     
-    $id = $_GET['id'];
+    $id = intval( $_GET['id'] );
     if( $id > 0 ){
         $sql = new sql_helper($bug_config);
         $bug_data_directory = $bug_config['bug_data_directory'];
