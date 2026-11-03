@@ -193,7 +193,7 @@ function file_callback_one($row) {
 ## Deregistration Webhook
 
 ### Trigger
-User revokes app access in Garmin Connect.
+User revokes app access in Garmin Connect, or our `DELETE /user/registration` call.
 
 ### Payload Structure
 
@@ -208,8 +208,11 @@ User revokes app access in Garmin Connect.
 }
 ```
 
+`userAccessToken` is absent after the OAuth 2.0 migration. Activity and file notifications also lose it, and users are then found by `userId` ([oauth2-migration](oauth2-migration.md)).
+
 ### Processing
-- Marks tokens as inactive
+- With `userAccessToken`: marks that token as inactive
+- With only `userId`: marks all that user's tokens as inactive
 - Does NOT delete user data (preserved for historical reference)
 
 ## User ID Validation

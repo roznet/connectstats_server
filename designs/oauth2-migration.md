@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-03):** nothing built except the deregistration script, which is committed but not yet run. Open questions emailed to Garmin 2026-11-03, no reply yet. Conversion not requested yet.
+**Status (2026-11-03):** deregistration script committed but not yet run. Webhook changes written and tested locally, not deployed. Open questions emailed to Garmin 2026-11-03, no reply yet. Conversion not requested yet.
 
 ## Decisions
 
@@ -119,15 +119,18 @@ The code assumes `userAccessToken` is always present. Without it:
 | `deregister_user()` | **Silently does nothing**: the token stays live |
 
 - [ ] Confirm where activity and file webhooks carry `userId`: body or header (see Garmin's process)
-- [ ] `process()`: `userId` required, `userAccessToken` optional
-- [ ] Add a lookup by `userId`, used wherever `user_info()` takes a webhook's token. Several rows can share a `userId`: pick the newest row with live Garmin credentials
-- [ ] Index `tokens.userId`
-- [ ] `deregister_user()`: handle `{"deregistrations":[{"userId":"..."}]}`, and clear the secret, Garmin tokens and server token on all that user's rows
-- [ ] Check nothing depends on `activities.userAccessToken` being set, such as `search` with `activities_garmin_health` output
-- [ ] Test the callback URL with the extra `token` parameter. The download uses the URL unchanged and signs its query parameters, so it should work with both schemes
+- [x] `process()`: `userId` required, `userAccessToken` optional
+- [x] Add a lookup by `userId`, used wherever `user_info()` takes a webhook's token (`user_info_for_notification()`). Several rows can share a `userId`: pick the newest live row. Multi-sport parent links now use `userId` too. Must also prefer rows with OAuth 2.0 tokens once those exist (Work 3)
+- [ ] Index `tokens.userId`, by hand at deploy, because a schema bump isn't safe yet (Work 3): `CREATE INDEX idx_tokens_userId ON tokens(userId)`
+- [x] `deregister_user()`: handle `{"deregistrations":[{"userId":"..."}]}` by clearing the secret on all that user's rows; a token only clears that token
+- [ ] `deregister_user()`: also clear the Garmin tokens and server token, once those columns exist (Work 3, 4)
+- [x] Check nothing depends on `activities.userAccessToken` being set. Only the debugging output of `search` with `activities_garmin_health` shows it, as null
+- [x] Test the callback URL with the extra `token` parameter on the mock (OAuth 1.0). Repeat against real Garmin
+- [ ] Deploy
 
 ### 3. Token storage and calling Garmin (server)
 
+- [ ] **Fix `sql_helper::create_or_alter()` first.** On MySQL 8, `DESCRIBE` reports `bigint unsigned` while the schema says `BIGINT(20) UNSIGNED`, so a version bump treats every such column as changed and rewrites it without `AUTO_INCREMENT`. Reproduced locally 2026-11-03: all 10 auto-increment columns lost it and inserts failed. Don't bump the schema version on prod until this is fixed and tested
 - [ ] Schema version bump in `ensure_schema()`. On `tokens`: `garmin_access_token`, `garmin_refresh_token`, `garmin_token_expires_at`, `garmin_refresh_expires_at`
 - [ ] `Auth::get_url_data()` and callers: use Bearer if the user has an OAuth 2.0 token, otherwise OAuth 1.0. Bearer calls to Garmin's user endpoints use `partner-gateway`
 - [ ] Refresh the access token 600 seconds before it expires. Take a lock (`GET_LOCK` per user) and re-read after getting it: queue workers run concurrently, and every refresh replaces the refresh token, so a lost update loses the user's access. Store the response before doing anything else

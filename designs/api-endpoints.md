@@ -263,8 +263,12 @@ Called when a user revokes app access.
 }
 ```
 
+`userAccessToken` is absent after the OAuth 2.0 migration.
+
 **Processing:**
-- Marks user tokens as deregistered
+- With `userAccessToken`: marks that token as deregistered
+- With only `userId`: marks all that user's tokens as deregistered
+- Neither: returns 500 and records the error
 - Does NOT delete user data
 
 ---

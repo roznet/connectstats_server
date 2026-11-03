@@ -624,13 +624,27 @@ class GarminProcess {
             }
             foreach( $data as $summary_type => $infos){
                 foreach( $infos as $info){
+                    $where = NULL;
                     if( isset( $info['userAccessToken'] ) ){
-                        $user = $this->user_info( $info['userAccessToken'] );
+                        // OAuth 1.0: that token was disconnected. The user's other tokens stay valid.
                         $token = $this->validate_token( $info['userAccessToken'] );
-                        $query = "UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = '$token'";
-                        if( ! $this->sql->execute_query( $query ) ){
-                            $this->status->error( sprintf( 'Sql failed %s (%s)', $query, $this->sql->lasterror ) );
+                        if( $token ){
+                            $where = "userAccessToken = '$token'";
                         }
+                    }else if( isset( $info['userId'] ) ){
+                        // OAuth 2.0: only the userId is sent, so the whole Garmin user is disconnected.
+                        $userId = $this->validate_token( $info['userId'] );
+                        if( $userId ){
+                            $where = "userId = '$userId'";
+                        }
+                    }
+                    if( ! $where ){
+                        $this->status->error( 'Deregistration without a valid userAccessToken or userId' );
+                        continue;
+                    }
+                    $query = "UPDATE tokens SET userAccessTokenSecret = NULL WHERE $where";
+                    if( ! $this->sql->execute_query( $query ) ){
+                        $this->status->error( sprintf( 'Sql failed %s (%s)', $query, $this->sql->lasterror ) );
                     }
                 }
             }
@@ -745,6 +759,31 @@ class GarminProcess {
         return $rv;
     }
 
+    /**
+     *  Token row for a Garmin userId. Several rows can share one (one per login),
+     *  so prefer a row linked to a user, then one still live, then the newest.
+     */
+    function user_info_for_garmin_user_id( $userId ){
+        $query = sprintf( "SELECT * FROM tokens WHERE userId = '%s' ORDER BY cs_user_id IS NULL, userAccessTokenSecret IS NULL, token_id DESC LIMIT 1",
+                          $this->sql->connection->real_escape_string( $userId ) );
+
+        return $this->sql->query_first_row( $query );
+    }
+
+    /**
+     *  Token row for a Garmin notification: by userAccessToken when it has one,
+     *  otherwise by userId, the only identifier sent after the OAuth 2.0 migration.
+     */
+    function user_info_for_notification( $row ){
+        if( ! empty( $row['userAccessToken'] ) ){
+            return $this->user_info( $row['userAccessToken'] );
+        }
+        if( ! empty( $row['userId'] ) ){
+            return $this->user_info_for_garmin_user_id( $row['userId'] );
+        }
+        return NULL;
+    }
+
 
     function cache_for_table($table){
         return sprintf( 'cache_%s', $table);
@@ -821,7 +860,7 @@ class GarminProcess {
      *
      *    table: the table for the cache information
      *    insert_id: the cache_id to process inside table
-     *    required: an array of fields that from the cache info to save as a column in the database. In addition, userId and userAccessToken will always be saved
+     *    required: an array of fields that from the cache info to save as a column in the database. In addition, userId and, if present, userAccessToken will always be saved
      *    unique_keys: the array of columns to use in insert or update to ensure only one entry per values in these columns
      */
     function process($table, $insert_id, $required, $unique_keys = NULL ) {
@@ -854,7 +893,8 @@ class GarminProcess {
                         foreach( $end_points_fields as $key => $value ){
                             if( array_key_exists( $key, $activity ) ){
                                 $row[ $key ] = $activity[$key];
-                            }else{
+                            }else if( $key != 'userAccessToken' ){
+                                // Garmin stops sending userAccessToken once a user has moved to OAuth 2.0
                                 $this->status->error( sprintf( 'Missing end point field %s', $key ) );
                             }
                         }
@@ -1439,12 +1479,12 @@ class GarminProcess {
             $get_params = array();
             parse_str( $callback_info['query'], $get_params );
 
-            $userAccessToken = $row[ 'userAccessToken' ];
-
-            $user = $this->user_info( $userAccessToken );
+            $user = $this->user_info_for_notification( $row );
             if( ! $user ){
-                $this->status->error( "unregistered user for $userAccessToken" );
+                $this->status->error( sprintf( 'unregistered user for %s', $row['userAccessToken'] ?? $row['userId'] ?? 'unknown' ) );
             }
+            // From the token row, as the file's row has no token after the OAuth 2.0 migration
+            $userAccessToken = $user['userAccessToken'] ?? NULL;
             if( isset( $user['cs_user_id'] ) && intval( $user['cs_user_id'] ) > 0 ){
                 if( ! $this->user_is_active( intval( $user['cs_user_id'] ) ) ){
                     return;
@@ -1828,10 +1868,10 @@ class GarminProcess {
             }
 
             if( isset( $json['isParent'] ) && intval($json['isParent']) == 1 ){
-                if( isset( $json['startTimeInSeconds'] ) && isset( $json['startTimeInSeconds'] ) && isset( $row['userAccessToken'] ) ){
+                if( isset( $json['startTimeInSeconds'] ) && isset( $json['startTimeInSeconds'] ) && isset( $row['userId'] ) ){
                     $startTime = intval($json['startTimeInSeconds']);
                     $endTime = $startTime + intval($json['durationInSeconds']);
-                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userAccessToken = '%s'",  $startTime, $endTime, $row['userAccessToken'] );
+                    $query = sprintf( "SELECT activity_id,json,parent_activity_id FROM activities WHERE startTimeInSeconds >= %d AND startTimeInSeconds <= %d AND userId = '%s'",  $startTime, $endTime, $this->sql->connection->real_escape_string( $row['userId'] ) );
                     $found = $this->sql->query_as_array( $query );
 
                     $parent_row = $this->sql->query_first_row( sprintf( "SELECT activity_id FROM `%s` WHERE summaryId = '%s'", $table, $row['summaryId'] ) );
@@ -1862,9 +1902,9 @@ class GarminProcess {
             if( $fullrow['cs_user_id'] ){
                 $cs_user_id = $fullrow['cs_user_id'];
             }
-            if( !$fullrow['cs_user_id'] && isset( $row['userAccessToken'] ) && isset( $row['userId'] ) ){
+            if( !$fullrow['cs_user_id'] && isset( $row['userId'] ) ){
             
-                $userInfo = $this->user_info($row['userAccessToken']);
+                $userInfo = $this->user_info_for_notification($row);
                 if( isset( $userInfo['token_id'] ) ){
                     $token_id = $userInfo['token_id'];
             

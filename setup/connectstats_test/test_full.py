@@ -1,5 +1,6 @@
 """Full integration test — destructive (resets the database)."""
 
+import copy
 import json
 import os
 import subprocess
@@ -45,6 +46,142 @@ def _run_php(script: str, args: list[str], cwd: str, verbose: bool = False) -> b
                 print(f"      [stderr] {line}")
         return False
     return True
+
+
+def _db_query(config: Config, query: str, params: tuple = ()) -> list:
+    with config.db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        return cursor.fetchall()
+
+
+def _db_execute(config: Config, query: str, params: tuple = ()) -> None:
+    with config.db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+
+
+def _wait_for_caches(config: Config, garmin_dir: str, suite: TestSuite, max_wait: int = 15) -> None:
+    """Wait for the queue worker to process webhooks, then process what's left by hand."""
+    tables = (("cache_activities", "runactivities.php"), ("cache_fitfiles", "runfitfiles.php"))
+    for _ in range(max_wait):
+        pending = sum(_db_query(config, f"SELECT COUNT(*) FROM {t} WHERE processed_ts IS NULL")[0][0] for t, _s in tables)
+        if pending == 0:
+            return
+        time.sleep(1)
+    for table, script in tables:
+        for row in _db_query(config, f"SELECT cache_id FROM {table} WHERE processed_ts IS NULL ORDER BY cache_id"):
+            _run_php(script, [str(row[0])], garmin_dir, verbose=suite.verbose)
+
+
+def _test_notifications_without_token(client: ConnectStatsClient, config: Config, suite: TestSuite, garmin_dir: str) -> None:
+    now = int(time.time())
+
+    # A newer, deregistered token of the same Garmin user: downloads must not use it
+    _db_execute(config,
+                "INSERT INTO tokens (cs_user_id, userId, userAccessToken, userAccessTokenSecret) "
+                "SELECT cs_user_id, userId, 'testtoken-dead', NULL FROM tokens WHERE userAccessToken = 'testtoken'")
+    cs_user_id, user_id = _db_query(config, "SELECT cs_user_id, userId FROM tokens WHERE userAccessToken = 'testtoken'")[0]
+
+    # Old and new format in one notification, as during the transition
+    template = copy.deepcopy(_load_sample("sample-backfill-activities.json")["activities"][0])
+    template["startTimeInSeconds"] = now
+    new_format = dict(template, summaryId="9000000001", userId=user_id)
+    new_format.pop("userAccessToken", None)
+    old_format = dict(template, summaryId="9000000002", userId=user_id, userAccessToken="testtoken",
+                      startTimeInSeconds=now + 1000)
+    unknown_user = dict(new_format, summaryId="9000000003", userId="unknown-garmin-user", startTimeInSeconds=now + 2000)
+
+    suite.start_test("activities without token accepted")
+    resp = client.post_json("api/garmin/activities", {"activities": [new_format, old_format, unknown_user]})
+    suite.check(resp.ok, "activities without token accepted", f"status={resp.status}")
+
+    # Multi sport: the parent links its children by userId
+    # (new summaryIds: the step above already stored these activities, with their token)
+    multi = copy.deepcopy(_load_sample("sample-backfill-activities-multi.json"))
+    for activity in multi["activities"]:
+        activity["userId"] = user_id
+        activity.pop("userAccessToken", None)
+        activity["summaryId"] = activity["summaryId"].replace("401866", "901866")
+        if "parentSummaryId" in activity:
+            activity["parentSummaryId"] = activity["parentSummaryId"].replace("401866", "901866")
+    suite.start_test("multi sport without token accepted")
+    resp = client.post_json("api/garmin/activities", multi)
+    suite.check(resp.ok, "multi sport without token accepted", f"status={resp.status}")
+
+    # File with the token parameter Garmin adds to the callback URL
+    callback = "http://app/mock/garmin/activity_file.php?id=9000000011&token=callback-token"
+    suite.start_test("file without token accepted")
+    resp = client.post_json("api/garmin/file", {"file": [{
+        "userId": user_id, "summaryId": "9000000011", "fileType": "FIT",
+        "callbackURL": callback, "startTimeInSeconds": now,
+    }]})
+    suite.check(resp.ok, "file without token accepted", f"status={resp.status}")
+
+    _wait_for_caches(config, garmin_dir, suite)
+
+    rows = dict((r[0], r[1]) for r in _db_query(
+        config, "SELECT summaryId, cs_user_id FROM activities WHERE summaryId IN ('9000000001','9000000002','9000000003')"))
+    suite.start_test("activity without token linked to user")
+    suite.check(rows.get("9000000001") == cs_user_id, "activity without token linked to user", f"got {rows}")
+    suite.start_test("activity with token linked to user")
+    suite.check(rows.get("9000000002") == cs_user_id, "activity with token linked to user", f"got {rows}")
+    suite.start_test("activity of unknown user saved, not linked")
+    suite.check("9000000003" in rows and rows["9000000003"] is None, "activity of unknown user saved, not linked", f"got {rows}")
+
+    suite.start_test("multi sport child linked to parent without token")
+    linked = _db_query(config,
+                       "SELECT c.parent_activity_id, p.activity_id FROM activities c, activities p "
+                       "WHERE c.summaryId = '9018666913' AND p.summaryId = '9018666911'")
+    suite.check(bool(linked) and linked[0][0] == linked[0][1], "multi sport child linked to parent without token", f"got {linked}")
+
+    # The download needs the live token: the mock refuses any other
+    suite.start_test("file without token downloaded with live token")
+    found = []
+    for _ in range(15):
+        found = _db_query(config, "SELECT file_id, cs_user_id, asset_id FROM fitfiles WHERE summaryId = '9000000011'")
+        if found and found[0][2]:
+            break
+        time.sleep(1)
+    if found and not found[0][2]:
+        _run_php("runcallback.php", ["fitfiles", str(found[0][0])], garmin_dir, verbose=suite.verbose)
+        found = _db_query(config, "SELECT file_id, cs_user_id, asset_id FROM fitfiles WHERE summaryId = '9000000011'")
+    suite.check(bool(found) and bool(found[0][2]) and found[0][1] == cs_user_id,
+                "file without token downloaded with live token", f"got {found}")
+
+
+def _test_deregistration(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
+    def live_tokens() -> set:
+        return set(r[0] for r in _db_query(
+            config, "SELECT userAccessToken FROM tokens WHERE userAccessTokenSecret IS NOT NULL AND userAccessToken LIKE 'dereg-%'"))
+
+    for token, user in (("dereg-a1", "dereg-user-a"), ("dereg-a2", "dereg-user-a"), ("dereg-b1", "dereg-user-b"),
+                        ("dereg-b2", "dereg-user-b"), ("dereg-c1", "dereg-user-c")):
+        _db_execute(config, "INSERT INTO tokens (userId, userAccessToken, userAccessTokenSecret) VALUES (%s, %s, 'secret')", (user, token))
+
+    suite.start_test("deregistration by userId clears that user only")
+    resp = client.post_json("api/garmin/deregistration", {"deregistrations": [{"userId": "dereg-user-a"}]})
+    live = live_tokens()
+    suite.check(resp.ok and live == {"dereg-b1", "dereg-b2", "dereg-c1"},
+                "deregistration by userId clears that user only", f"status={resp.status}, live={live}")
+
+    suite.start_test("deregistration by token clears that token only")
+    resp = client.post_json("api/garmin/deregistration", {"deregistrations": [{"userId": "dereg-user-b", "userAccessToken": "dereg-b1"}]})
+    live = live_tokens()
+    suite.check(resp.ok and live == {"dereg-b2", "dereg-c1"},
+                "deregistration by token clears that token only", f"status={resp.status}, live={live}")
+
+    suite.start_test("deregistration without identifier is an error")
+    resp = client.post_json("api/garmin/deregistration", {"deregistrations": [{"other": "value"}]})
+    live = live_tokens()
+    suite.check(resp.status == 500 and live == {"dereg-b2", "dereg-c1"},
+                "deregistration without identifier is an error", f"status={resp.status}, live={live}")
+
+    suite.start_test("deregistration ignores SQL in userId")
+    resp = client.post_json("api/garmin/deregistration", {"deregistrations": [{"userId": "x' OR '1'='1"}]})
+    live = live_tokens()
+    suite.check(live == {"dereg-b2", "dereg-c1"}, "deregistration ignores SQL in userId", f"status={resp.status}, live={live}")
 
 
 def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
@@ -198,5 +335,11 @@ def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
     resp = client.get("api/connectstats/search?token_id=1&start=0&limit=50", token_id=2)
     suite.check(resp.status == 401, "wrong token rejected after rebuild", f"got {resp.status}")
 
-    # 8. Run schema checks
+    # 8. Notifications without userAccessToken (format after the OAuth 2.0 migration)
+    _test_notifications_without_token(client, config, suite, garmin_dir)
+
+    # 9. Deregistration by token and by userId
+    _test_deregistration(client, config, suite)
+
+    # 10. Run schema checks
     test_schema.run(config, suite)
