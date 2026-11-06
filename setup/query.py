@@ -13,6 +13,24 @@ import re
 import mysql.connector
 import base64
 import argparse
+import json
+import os
+
+def load_config( path ):
+    """Values from a config.php: its literal 'key' => 'value' entries, plus config.json
+    next to it when present (the loader-only config.php used in production)."""
+    regexp = re.compile("'([a-zA-Z_]+)' +=> +'([-.0-9a-zA-Z_!]+)'," )
+    config = dict()
+    with open( path ) as cf:
+        for line in cf:
+            m = regexp.search( line )
+            if m:
+                config[ m.group(1) ] = m.group(2)
+    json_path = os.path.join( os.path.dirname( os.path.abspath( path ) ), 'config.json' )
+    if os.path.exists( json_path ):
+        with open( json_path ) as jf:
+            config.update( { k: str(v) for k, v in json.load( jf ).items() if v is not None } )
+    return config
 
 class ConnectStatsRequest:
 
@@ -21,14 +39,7 @@ class ConnectStatsRequest:
 
         self.verbose = args.verbose
         
-        regexp = re.compile("'([a-zA-Z_]+)' +=> +'([-.0-9a-zA-Z_!]+)'," )
-        config = dict()
-
-        with open( args.config ) as cf:
-            for line in cf:
-                m = regexp.search( line )
-                if m:
-                    config[ m.group(1) ] = m.group(2)
+        config = load_config( args.config )
 
         self.consumerKey = config['consumerKey']
         self.consumerSecret = config['consumerSecret']

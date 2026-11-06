@@ -1,5 +1,6 @@
 """Configuration parsing and DB connection management."""
 
+import json
 import re
 import os
 from dataclasses import dataclass
@@ -23,7 +24,10 @@ class Config:
 
     @classmethod
     def from_php_config(cls, path: str) -> "Config":
-        """Parse a PHP config.php file and return a Config instance."""
+        """Parse a PHP config.php file and return a Config instance.
+
+        Reads the literal 'key' => 'value' entries, plus config.json next to the file
+        when present (the loader-only config.php used in production)."""
         regexp = re.compile(r"'([a-zA-Z_]+)' +=> +'([-.0-9a-zA-Z_!]+)',")
         raw: dict[str, str] = {}
 
@@ -32,6 +36,11 @@ class Config:
                 m = regexp.search(line)
                 if m:
                     raw[m.group(1)] = m.group(2)
+
+        json_path = os.path.join(os.path.dirname(os.path.abspath(path)), "config.json")
+        if os.path.exists(json_path):
+            with open(json_path) as f:
+                raw.update({k: str(v) for k, v in json.load(f).items() if v is not None})
 
         return cls(
             consumer_key=raw["consumerKey"],
