@@ -73,7 +73,19 @@ class sql_helper {
 		mysqli_report(MYSQLI_REPORT_OFF);
 		$this->connection = new mysqli($api_config['db_host'], $this->db_username, $this->db_password );
 		if( $this->connection->connect_errno ){
-			die( "Could not connect to the database: ".$this->connection->connect_error );
+			$message = "Could not connect to the database: ".$this->connection->connect_error;
+			if( PHP_SAPI == 'cli' ){
+				// Non-zero exit: recorded in tasks.exec_status, and cronjob reports a failure
+				fwrite( STDERR, $message.PHP_EOL );
+				exit( 1 );
+			}
+			// A 503, not die()'s 200: Garmin only retries webhook pushes that fail,
+			// so a 200 here would silently drop them (db restart, 2026-11-06)
+			if( !headers_sent() ){
+				http_response_code( 503 );
+				header( 'Retry-After: 60' );
+			}
+			die( $message );
 		};
 		$this->fieldsInfo = NULL;
 		$this->tableInfo = NULL;

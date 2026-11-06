@@ -18,6 +18,8 @@ Nothing secret is in the image. Compose takes three host paths from `.env`:
 - `DATA_DIR`: persistent data (`mysql/`, `bugs/`, `state/`, plus `assets/` in dev only). On the droplet, the DigitalOcean Volume.
 - `LOG_DIR`: per-task logs and cron logs (about 35k files a day in prod, 15-day cleanup in `docker/worker/crontab`).
 
+In prod, `config.php` holds no values: it only decodes `config.json` from the same directory. Anything that reads config outside PHP must handle both forms. `setup/query.py` and `setup/connectstats_test/config.py` read the literal `'key' => 'value'` lines, then merge `config.json` when it sits next to the file.
+
 tmp, including the S3 read cache (`s3_cache_local` → `/var/www/tmp/s3_cache`), is a named volume and safe to lose.
 
 ### Users and permissions
@@ -47,6 +49,16 @@ The dev overlay:
 - adds the `tests` service (image target `test`, with Python and the test dependencies)
 
 Reset the local database: `docker compose down && rm -rf data/mysql`.
+
+## Deploying
+
+On the droplet, from master: `git pull --ff-only && docker compose build && docker compose up -d`. Compose only recreates containers whose image or settings changed:
+
+- `app` and `worker` restart on every deploy, because the code is baked into the image (a few seconds).
+- `db` keeps running, because its base image is pinned by digest (`docker/mysql/Dockerfile`). With a floating `mysql:8.4` tag, every build looked the tag up again on Docker Hub, so a new patch release rebuilt the image and the deploy restarted (and upgraded) the database.
+- Garmin pushes that arrive while the database is unreachable get a 503 and are retried by Garmin.
+
+If `up -d` reports that it is recreating `db` when you didn't mean to change it, stop and find out why. To update MySQL, bump the pin in a deploy of its own, at a quiet time.
 
 ## Gotchas
 
