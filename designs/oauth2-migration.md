@@ -155,19 +155,19 @@ Server:
 - [ ] `Auth::authenticate_header()`: accept `Bearer`, and check the row matches `token_id`. Every endpoint using it gets this automatically (`search`, `json`, `file`, `sync`, `validateuser`, `notifications/register`)
 - [ ] Check code that assumes `userAccessToken` is set on a `tokens` row (`user_info()`, `Auth::authorization_header_for_token_id()`, `api/garmin/sign.php`)
 - [ ] Permissions: read `/user/permissions` at login. Decide whether to also store `userPermissionsChange` webhooks: without them, a user who later turns off sharing just stops getting data
-- [ ] `/api/status/api` returns the setting from the config: `{"status":1, "garmin_login":"oauth2"}`. Not set means OAuth 1.0
+- [ ] `/api/status/api` returns the setting and client ID from the config: `{"status":1, "garmin_login":"oauth2", "garmin_client_id":"..."}`. It sends both only when `garmin_login` and `oauth2ClientId` are set; otherwise neither, which means OAuth 1.0. The client ID isn't secret (it's in the authorization URL), and Garmin only issues it at conversion, so an app build submitted earlier can't have it compiled in
 
 App, one version supporting both:
 
 Signed-in users need no mode: a stored `server_token` means Bearer, otherwise OAuth 1.0 as today. Whether the server has exchanged that user's Garmin token makes no difference to the app. Only a new login needs the setting, to choose the flow.
 
-- [ ] `GCConnectStatsRequest.m`, `signIn`: use the PKCE flow if the setting says `oauth2`, otherwise `signInGarminStep`
+- [ ] `GCConnectStatsRequest.m`, `signIn`: use the PKCE flow if the setting says `oauth2` and there's a client ID, otherwise `signInGarminStep`
 - [ ] `isSignedIn`: currently requires a secret, must accept a `server_token` instead
 - [ ] `preparedUrlRequest:params:`: Bearer if the app has a `server_token`, otherwise the existing OAuth 1.0 signing
 - [ ] `signout`: also clears the `server_token`
 - [ ] New login without `ACTIVITY_EXPORT`: explain why no activities will arrive
 - [ ] 401 keeps forcing a new login (already the case, in `checkNoErrors`)
-- [ ] `GCConnectStatsRequestAPICheck.swift`: read `garmin_login` and save it, like `redirect`. The app calls this just before login on each sync
+- [ ] `GCConnectStatsRequestAPICheck.swift`: read `garmin_login` and `garmin_client_id` and save them, like `redirect`. The app calls this just before login on each sync
 - [ ] Fresh install: make sure login waits for the status check. If there's no answer, use the last saved value, or OAuth 1.0 if none
 
 **Logout (to decide):** "Tap to logout" in the app only clears local data, while Garmin requires the DELETE call wherever a user would reasonably believe they're removing consent. It's in the open questions below. If it applies: a new authenticated server endpoint that deregisters the user, called by the app before clearing its data.
