@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below and move on. Webhook changes are deployed (app image of 7 Nov). Deregistration not run yet: `url_user_registration` is still missing from the prod config. Conversion not requested yet: **this is now the critical path**. About 3 weeks behind the 2 Nov timeline, see the revised one.
+**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below and move on. Webhook changes are deployed (app image of 7 Nov). Deregistration: config deployed and the first real call worked (21 Nov); the full run is next. Conversion not requested yet: **this is now the critical path**. About 3 weeks behind the 2 Nov timeline, see the revised one.
 
 ## Decisions
 
@@ -100,15 +100,16 @@ If the conversion hasn't come through by ~5 Dec: chase Garmin (email + developer
 Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 users), 5,010 kept. About 3.6 hours at 100 calls/minute.
 
 - [x] Script: dry run by default, skips anything recent, resumable, stops after repeated failures
-- [ ] Deploy, add `url_user_registration` to the config
-- [ ] Dry run, `--execute --limit=1`, `--limit=50`, then the full run
+- [x] Deploy, add `url_user_registration` to the config (2026-11-21)
+- [x] Dry run (21,760 to deregister, 4,910 kept) and `--execute --limit=1` (2026-11-21): 204 from `healthapi.garmin.com/wellness-api`, Garmin's deregistration webhook arrived 3 s later and was handled (200, no error row)
+- [ ] `--limit=50`, then the full run
 - [ ] Decide what to do with tokens that keep failing
 
 Deregistered users keep their rows. Coming back, they get a 401, and the app asks for a login.
 
 Two things to watch on the first calls:
 
-- **URL:** the script is set to `healthapi.garmin.com/wellness-api/rest/user/registration`, the same base as `url_user_id`. The PKCE spec has `apis.garmin.com/partner-gateway/rest/user/registration`, without saying whether OAuth 1.0 calls can use it. If `--limit=1` fails, try that URL: it's only a config change.
+- **URL:** confirmed working with OAuth 1.0 on 21 Nov. The script is set to `healthapi.garmin.com/wellness-api/rest/user/registration`, the same base as `url_user_id`. The PKCE spec has `apis.garmin.com/partner-gateway/rest/user/registration`, without saying whether OAuth 1.0 calls can use it. If `--limit=1` fails, try that URL: it's only a config change.
 - **Webhooks:** Garmin notifies us of each DELETE, so expect up to ~21.7k deregistration webhooks during the run. The handler clears the same secret again, which should be harmless. Not tested at that volume.
 
 ### 2. Webhooks (server)
@@ -125,7 +126,7 @@ The code assumes `userAccessToken` is always present. Without it:
 - [ ] `userId` body vs header: best guess body (see best guesses). Add a header fallback when the body has none, and record the headers of such webhooks so the real format shows up
 - [x] `process()`: `userId` required, `userAccessToken` optional
 - [x] Add a lookup by `userId`, used wherever `user_info()` takes a webhook's token (`user_info_for_notification()`). Several rows can share a `userId`: pick the newest live row. Multi-sport parent links now use `userId` too. Must also prefer rows with OAuth 2.0 tokens once those exist (Work 3)
-- [ ] Index `tokens.userId`, by hand at deploy, as `ensure_schema()` doesn't manage indexes: `CREATE INDEX idx_tokens_userId ON tokens(userId)`
+- [x] Index `tokens.userId` (done on prod 2026-11-21), by hand at deploy, as `ensure_schema()` doesn't manage indexes: `CREATE INDEX idx_tokens_userId ON tokens(userId)`
 - [x] `deregister_user()`: handle `{"deregistrations":[{"userId":"..."}]}` by clearing the secret on all that user's rows; a token only clears that token
 - [ ] `deregister_user()`: also clear the Garmin tokens and server token, once those columns exist (Work 3, 4)
 - [x] Check nothing depends on `activities.userAccessToken` being set. Only the debugging output of `search` with `activities_garmin_health` shows it, as null
@@ -223,9 +224,9 @@ Asked 2026-11-03, no answer by 2026-11-21. We act on these guesses; the code is 
 | How long does a conversion take? | Days to 2 weeks | Request it now; everything else is ready and inactive before it lands |
 | Does converting affect the `garmin_dev` key; can it go first? | Separate key, converted separately | Ask for both in one email, dev first if they can |
 | Do webhooks change at conversion, or 30 days after each exchange? | 30 days after each exchange, per the guide | Both formats are already handled |
-| New-format activity/file webhooks: `userId` in body or header? | **Body**, as today (only `userAccessToken` goes away) | Fall back to a request header when the body has no `userId`, and record the headers of any such webhook in `error_*` so we can see the real format |
+| New-format activity/file webhooks: `userId` in body or header? | **Body**, as today (only `userAccessToken` goes away). Garmin already sends a `Garmin-Client-Id` header on webhooks (seen 21 Nov), which matches the spec's "client ID in the header" | Fall back to a request header when the body has no `userId`, and record the headers of any such webhook in `error_*` so we can see the real format |
 | Deregistering ~21.7k users OK, at what rate? 204? Dead token response? | OK at 100/min. 2xx is success. A dead token returns 401 | Script stops after 10 failures in a row; decide on persistent failures from the logs |
-| Deregistration URL for OAuth 1.0 calls | `healthapi.garmin.com/wellness-api` (same base as `url_user_id`, which works) | Config change to `apis.garmin.com/partner-gateway` if `--limit=1` fails |
+| Deregistration URL for OAuth 1.0 calls | **Confirmed 21 Nov**: `healthapi.garmin.com/wellness-api` returns 204 | — |
 | Several OAuth 1.0 tokens for one Garmin user | One exchange per Garmin user is enough; the OAuth 2.0 grant is per user | Garmin credentials are stored per `userId` (see Work 3), so all of a user's rows share them. If Garmin turns out to need every token exchanged, the script can run again per token |
 | Exchange after 31 Dec? | No | Exchange by ~15 Dec; after that, users re-login |
 | Does a logout that only clears local data need the DELETE? | **Yes**: a user who taps logout reasonably believes they're disconnecting | Add a disconnect endpoint, called by the app on logout (Work 4) |
