@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration: `--limit=50` done 21 Nov; the full run is next. Scheduled refresh job in the crontab. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
+**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration done 21 Nov (19.7k tokens; 4,922 live tokens for 4,771 Garmin users left for the exchange). Scheduled refresh job in the crontab. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
 
 ## Decisions
 
@@ -82,7 +82,7 @@ Revised 2026-11-21 (the 2 Nov proposal slipped by about 3 weeks). Hard limit: OA
 | Done 3 Nov | Email Garmin the open questions (no reply) |
 | Done 7 Nov | Webhook changes deployed |
 | Done 21 Nov | **Request the conversion**, both keys, `garmin_dev` first if they can. Unanswered questions repeated |
-| 22–24 Nov | Deregistration: config, `userId` index, dry run, `--limit=1`, `--limit=50`, full run (~3.6 h) |
+| Done 21 Nov | Deregistration: config, `userId` index, dry run, `--limit=1`, `--limit=50`, 2,000, full run |
 | Done 21 Nov | Rest of the server deployed, inactive: OAuth 2.0 token storage and refresh, Bearer calls, exchange script, login endpoint, status endpoint, disconnect endpoint |
 | 30 Nov | App submitted: supports both flows, setting off |
 | Conversion + 1 day | Exchange own account; test login with Garmin's OAuth 2.0 tool; check downloads |
@@ -103,7 +103,7 @@ Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 u
 - [x] Deploy, add `url_user_registration` to the config (2026-11-21)
 - [x] Dry run (21,760 to deregister, 4,910 kept) and `--execute --limit=1` (2026-11-21): 204 from `healthapi.garmin.com/wellness-api`, Garmin's deregistration webhook arrived 3 s later and was handled (200, no error row)
 - [x] `--limit=50` (2026-11-21): 49 × 204, 1 × 401 "OAuthToken is invalid" (token already dead at Garmin, left as is). Garmin batched the deregistration webhooks (~5 users per request), all answered 200, no error rows
-- [ ] Full run
+- [x] Full run (2026-11-21, 15:32–18:51 UTC): 19,574 deregistered, 152 dead (secret cleared), 5 failed with 401 "Invalid signature" (same token/secret format as the rest, dormant since 2020–21: probably a stale secret, left as is), 0 × 429, 4,579 webhooks all 200, no error rows. Left: 4,922 live tokens for 4,771 Garmin users (6 without `cs_user_id`, 4 without `userId`)
 - [x] Batch of 2,000 (2026-11-21): 1,978 × 204, 22 dead (401 "OAuthToken is invalid", 1.1%), no 429 at 100/min, 459 webhooks all 200
 - [x] Tokens that keep failing: a 401 "OAuthToken is invalid" now clears the secret like a success (`DEAD` in the log), so dead tokens don't pile up at the head of the next run; `--max-dead` (50) stops a run if every answer is "invalid"
 
