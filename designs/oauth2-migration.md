@@ -104,7 +104,8 @@ Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 u
 - [x] Dry run (21,760 to deregister, 4,910 kept) and `--execute --limit=1` (2026-11-21): 204 from `healthapi.garmin.com/wellness-api`, Garmin's deregistration webhook arrived 3 s later and was handled (200, no error row)
 - [x] `--limit=50` (2026-11-21): 49 × 204, 1 × 401 "OAuthToken is invalid" (token already dead at Garmin, left as is). Garmin batched the deregistration webhooks (~5 users per request), all answered 200, no error rows
 - [ ] Full run
-- [ ] Decide what to do with tokens that keep failing
+- [x] Batch of 2,000 (2026-11-21): 1,978 × 204, 22 dead (401 "OAuthToken is invalid", 1.1%), no 429 at 100/min, 459 webhooks all 200
+- [x] Tokens that keep failing: a 401 "OAuthToken is invalid" now clears the secret like a success (`DEAD` in the log), so dead tokens don't pile up at the head of the next run; `--max-dead` (50) stops a run if every answer is "invalid"
 
 Deregistered users keep their rows. Coming back, they get a 401, and the app asks for a login.
 

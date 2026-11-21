@@ -1,7 +1,8 @@
 <?php
 // Mock of Garmin's "delete user registration" endpoint. Checks the OAuth 1.0 signature
 // against the request's actual method, like Garmin. The token secret has to be
-// "secret-" + token. Tokens starting with "dead" get a 403, "limited" a 429.
+// "secret-" + token. Tokens starting with "dead" get a 403, "limited" a 429,
+// "invalid" Garmin's 401 for a token whose grant no longer exists.
 include('config.php');
 
 $fields = [];
@@ -24,6 +25,10 @@ $key = rawurlencode($api_config['consumerSecret']) . '&' . rawurlencode('secret-
 
 if ($_SERVER['REQUEST_METHOD'] !== 'DELETE' || !hash_equals(base64_encode(hash_hmac('sha1', $base, $key, true)), $signature)) {
     http_response_code(401);
+} elseif (strpos($token, 'invalid') === 0) {
+    http_response_code(401);
+    header('Content-Type: application/json');
+    print(json_encode(['message' => 'OAuthToken is invalid', 'error' => 'The request has not been applied because it lacks valid authentication credentials for the target resource.'], JSON_PRETTY_PRINT));
 } elseif (strpos($token, 'dead') === 0) {
     http_response_code(403);
 } elseif (strpos($token, 'limited') === 0) {

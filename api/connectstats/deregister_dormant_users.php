@@ -39,6 +39,7 @@
  *   --limit=N           Max tokens to process in this run (default: all)
  *   --rate=N            Max Garmin calls per minute (default: 100)
  *   --max-failures=N    Stop after N failures in a row (default: 10)
+ *   --max-dead=N        Stop after N dead tokens in a row (default: 50)
  *
  * A token is deregistered only if all of these hold:
  *   - it has a secret: tokens without one are already deregistered and can't be signed
@@ -51,16 +52,22 @@
  * running again resumes where it stopped. Failed tokens are left unchanged and retried on
  * the next run. Dormant-first order: users who never used the app, then the longest idle.
  *
+ * Dead tokens: Garmin answers 401 "OAuthToken is invalid" when the grant no longer exists
+ * (about 1% on 2026-11-21). There's nothing to deregister or exchange, so the secret is
+ * cleared as for a success and the token is logged as DEAD. Otherwise they would pile up at
+ * the head of the list for the next run. These are dormant users we disconnect anyway, so
+ * a wrong answer costs nothing; --max-dead still stops the run if every answer is "invalid".
+ *
  * Users, tokens and their data are kept. A returning user gets a 401, which makes the app
  * ask for a new login.
  */
 
 include_once('../shared.php');
 
-$options = getopt('', ['execute', 'days:', 'limit:', 'rate:', 'max-failures:', 'help']);
+$options = getopt('', ['execute', 'days:', 'limit:', 'rate:', 'max-failures:', 'max-dead:', 'help']);
 
 if (isset($options['help'])) {
-    echo "Usage: php deregister_dormant_users.php [--execute] [--days=N] [--limit=N] [--rate=N] [--max-failures=N]\n";
+    echo "Usage: php deregister_dormant_users.php [--execute] [--days=N] [--limit=N] [--rate=N] [--max-failures=N] [--max-dead=N]\n";
     echo "Without --execute, only reports what would be done.\n";
     exit(0);
 }
@@ -70,6 +77,7 @@ $days = isset($options['days']) ? intval($options['days']) : 365;
 $limit = isset($options['limit']) ? intval($options['limit']) : 0;
 $rate = isset($options['rate']) ? intval($options['rate']) : 100;
 $max_failures = isset($options['max-failures']) ? intval($options['max-failures']) : 10;
+$max_dead = isset($options['max-dead']) ? intval($options['max-dead']) : 50;
 
 $process = new GarminProcess();
 $process->ensure_commandline($argv ?? NULL);
@@ -83,8 +91,8 @@ if ($days < 180) {
     log_msg("ERROR: --days=%d is below the 180 day minimum", $days);
     exit(1);
 }
-if ($rate < 1 || $max_failures < 1) {
-    log_msg("ERROR: --rate and --max-failures must be at least 1");
+if ($rate < 1 || $max_failures < 1 || $max_dead < 1) {
+    log_msg("ERROR: --rate, --max-failures and --max-dead must be at least 1");
     exit(1);
 }
 
@@ -183,10 +191,20 @@ function garmin_delete($process, $url, $token, $secret) {
     return [curl_getinfo($ch, CURLINFO_HTTP_CODE), $body];
 }
 
+/**
+ * Secret set to NULL on every row with this token value, as the deregistration webhook does
+ */
+function clear_secret($process, $token) {
+    $escaped = $process->sql->escape($token);
+    return $process->sql->execute_query("UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = '$escaped'");
+}
+
 $done = 0;
+$dead = 0;
 $failed = 0;
 $skipped_now = 0;
 $failures_in_a_row = 0;
+$dead_in_a_row = 0;
 $interval = 60.0 / $rate;
 $start_time = microtime(true);
 
@@ -210,14 +228,26 @@ foreach ($to_process as $i => $t) {
     list($status, $body) = garmin_delete($process, $url, $t['userAccessToken'], $t['userAccessTokenSecret']);
 
     if ($status >= 200 && $status < 300) {
-        $escaped = $process->sql->escape($t['userAccessToken']);
-        if (!$process->sql->execute_query("UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = '$escaped'")) {
+        if (!clear_secret($process, $t['userAccessToken'])) {
             log_msg("ERROR: token_id=%d deregistered but not updated (%s), stopping", $token_id, $process->sql->lasterror);
             exit(1);
         }
         log_msg("OK token_id=%d cs_user_id=%d last_used=%s http=%d", $token_id, $t['cs_user_id'], $t['last_ts'] ?? 'never', $status);
         $done++;
         $failures_in_a_row = 0;
+        $dead_in_a_row = 0;
+    } elseif ($status == 401 && stripos((string)$body, 'OAuthToken is invalid') !== false) {
+        if (!clear_secret($process, $t['userAccessToken'])) {
+            log_msg("ERROR: token_id=%d dead but not updated (%s), stopping", $token_id, $process->sql->lasterror);
+            exit(1);
+        }
+        log_msg("DEAD token_id=%d cs_user_id=%d last_used=%s http=401 OAuthToken is invalid, secret cleared", $token_id, $t['cs_user_id'], $t['last_ts'] ?? 'never');
+        $dead++;
+        $dead_in_a_row++;
+        if ($dead_in_a_row >= $max_dead) {
+            log_msg("ERROR: %d dead tokens in a row, stopping", $dead_in_a_row);
+            break;
+        }
     } else {
         log_msg("FAILED token_id=%d cs_user_id=%d http=%d %s", $token_id, $t['cs_user_id'], $status, substr((string)$body, 0, 200));
         $failed++;
@@ -232,7 +262,7 @@ foreach ($to_process as $i => $t) {
         }
     }
 
-    if ($done + $failed > 0 && ($done + $failed) % 500 == 0) {
+    if ($done + $dead + $failed > 0 && ($done + $dead + $failed) % 500 == 0) {
         log_msg("Progress: %d / %d", $i + 1, count($to_process));
     }
 
@@ -243,6 +273,6 @@ foreach ($to_process as $i => $t) {
 }
 
 log_msg("=== Summary ===");
-log_msg("Deregistered: %d, failed: %d, skipped: %d, in %d s", $done, $failed, $skipped_now, microtime(true) - $start_time);
+log_msg("Deregistered: %d, dead: %d, failed: %d, skipped: %d, in %d s", $done, $dead, $failed, $skipped_now, microtime(true) - $start_time);
 
-exit($failures_in_a_row >= $max_failures ? 1 : 0);
+exit($failures_in_a_row >= $max_failures || $dead_in_a_row >= $max_dead ? 1 : 0);

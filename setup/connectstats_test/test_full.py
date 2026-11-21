@@ -186,6 +186,47 @@ def _test_deregistration(client: ConnectStatsClient, config: Config, suite: Test
     suite.check(live == {"dereg-b2", "dereg-c1"}, "deregistration ignores SQL in userId", f"status={resp.status}, live={live}")
 
 
+def _test_dormant_deregistration(config: Config, suite: TestSuite, api_dir: str) -> None:
+    """deregister_dormant_users.php against the mock (secret = "secret-" + token)."""
+    cs_dir = os.path.join(api_dir, "connectstats")
+
+    def add(token: str, user_id: str, created: str = "2020-01-01") -> None:
+        _db_execute(config, "INSERT INTO users (userId, created_ts) VALUES (%s, %s)", (user_id, created))
+        cs_user_id = _db_query(config, "SELECT MAX(cs_user_id) FROM users")[0][0]
+        _db_execute(config, "INSERT INTO tokens (cs_user_id, userId, userAccessToken, userAccessTokenSecret, created_ts) "
+                            "VALUES (%s, %s, %s, %s, %s)", (cs_user_id, user_id, token, f"secret-{token}", created))
+
+    def live(prefix: str) -> set:
+        return set(r[0] for r in _db_query(config, "SELECT userAccessToken FROM tokens WHERE userAccessToken LIKE %s "
+                                                   "AND userAccessTokenSecret IS NOT NULL", (prefix + "%",)))
+
+    # Dormant-first order is by token_id for users who never used the app: more than
+    # --max-failures dead tokens at the head of the list, as left by earlier runs
+    for i in range(12):
+        add(f"invalid-{i:02d}", f"dormant-invalid-{i}")
+    add("dormant-ok1", "dormant-user-1")
+    add("dead-forbidden", "dormant-user-2")
+    add("dormant-ok2", "dormant-user-3")
+    # Same Garmin user as a recent login: kept
+    add("dormant-kept", "dormant-returning-user")
+    add("recent-login", "dormant-returning-user", created=time.strftime("%Y-%m-%d %H:%M:%S"))
+
+    suite.start_test("dormant deregistration stops after --max-dead")
+    ok = _run_php("deregister_dormant_users.php", ["--execute", "--rate=6000", "--max-dead=3"], cs_dir, verbose=suite.verbose)
+    suite.check(not ok and len(live("invalid-")) == 9 and live("dormant-ok") == {"dormant-ok1", "dormant-ok2"},
+                "dormant deregistration stops after --max-dead", f"ok={ok} invalid left={len(live('invalid-'))}")
+
+    suite.start_test("dormant deregistration clears dead tokens and continues")
+    _run_php("deregister_dormant_users.php", ["--execute", "--rate=6000"], cs_dir, verbose=suite.verbose)
+    suite.check(not live("invalid-") and not live("dormant-ok") and live("dead-") == {"dead-forbidden"},
+                "dormant deregistration clears dead tokens and continues",
+                f"invalid={live('invalid-')} ok={live('dormant-ok')} dead={live('dead-')}")
+
+    suite.start_test("dormant deregistration keeps recent Garmin users")
+    suite.check(live("dormant-kept") == {"dormant-kept"} and live("recent-login") == {"recent-login"},
+                "dormant deregistration keeps recent Garmin users", f"kept={live('dormant-kept')}")
+
+
 def _test_sql_injection(client: ConnectStatsClient, config: Config, suite: TestSuite, garmin_dir: str) -> None:
     now = int(time.time())
     template = copy.deepcopy(_load_sample("sample-backfill-activities.json")["activities"][0])
@@ -620,6 +661,9 @@ def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
 
     # 9. Deregistration by token and by userId
     _test_deregistration(client, config, suite)
+
+    # 9b. Deregistration of dormant users with Garmin (script)
+    _test_dormant_deregistration(config, suite, api_dir)
 
     # 10. Hostile values in notifications
     _test_sql_injection(client, config, suite, garmin_dir)
