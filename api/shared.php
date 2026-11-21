@@ -78,6 +78,7 @@ include_once( 'queue.php');
 include_once( 'sql_helper.php');
 include_once( 'S3.php' );
 include_once( 'lib/Auth.php' );
+include_once( 'lib/GarminOAuth2.php' );
 
 class garmin_sql extends sql_helper{
 	function __construct() {
@@ -378,6 +379,10 @@ class GarminProcess {
         // Initialize Auth handler
         $this->auth = new Auth($this->sql, $this->api_config);
         $this->auth->set_status($this->status);
+
+        // Garmin OAuth 2.0 credentials (inactive until a user has some)
+        $this->oauth2 = new GarminOAuth2($this->sql, $this->api_config);
+        $this->auth->set_oauth2($this->oauth2);
     }
 
     /**
@@ -401,6 +406,9 @@ class GarminProcess {
     function set_verbose($verbose){
         $this->verbose = $verbose;
         $this->auth->set_verbose($verbose);
+        if( isset( $this->oauth2 ) ){
+            $this->oauth2->set_verbose($verbose);
+        }
         $this->sql->verbose = $verbose;
         $this->status->verbose = $verbose;
     }
@@ -436,12 +444,12 @@ class GarminProcess {
                 'cache_activities', 'cache_activities_map',
                 'cache_fitfiles', 'cache_fitfiles_map',
                 'activities', 'weather', 'fitsession', 'fitfiles',
-                'assets', 'assets_s3', 'schema',
+                'assets', 'assets_s3', 'garmin_oauth2', 'schema',
                 // dynamic tables
                 'notifications', 'notifications_devices', 'notifications_activities',
                 'users_active',
                 // error tables
-                'error_cache_activities', 'error_cache_fitfiles', 'error_users'
+                'error_cache_activities', 'error_cache_fitfiles', 'error_users', 'error_garmin_oauth2'
             );
             foreach( $tables as $table ){
                 $this->sql->execute_query( "DROP TABLE IF EXISTS `$table`" );
@@ -469,7 +477,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 8;
+        $schema_version = 9;
         $schema = array(
             "usage" => array(
                 'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -497,6 +505,22 @@ class GarminProcess {
                 'userAccessToken' => 'VARCHAR(128)',
                 'userId' => 'VARCHAR(128)',
                 'userAccessTokenSecret' => 'VARCHAR(128)',
+                'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
+                'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
+                // OAuth 2.0 logins: SHA-256 of the server_token the app sends as Bearer (v9)
+                'server_token_hash' => 'CHAR(64)',
+            ),
+            // Garmin OAuth 2.0 credentials, one row per Garmin user (v9, see lib/GarminOAuth2.php)
+            "garmin_oauth2" => array(
+                'userId' => 'VARCHAR(128) PRIMARY KEY',
+                'access_token' => 'TEXT',
+                'refresh_token' => 'TEXT',
+                'access_expires_ts' => 'BIGINT(20) UNSIGNED',
+                'refresh_expires_ts' => 'BIGINT(20) UNSIGNED',
+                'scope' => 'TEXT',
+                'permissions' => 'TEXT',
+                'source' => 'VARCHAR(16)',
+                'refresh_failures' => 'INT UNSIGNED DEFAULT 0',
                 'ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP',
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
             ),
@@ -625,6 +649,7 @@ class GarminProcess {
             foreach( $data as $summary_type => $infos){
                 foreach( $infos as $info){
                     $where = NULL;
+                    $userId = NULL;
                     if( isset( $info['userAccessToken'] ) ){
                         // OAuth 1.0: that token was disconnected. The user's other tokens stay valid.
                         $token = $this->validate_token( $info['userAccessToken'] );
@@ -640,6 +665,13 @@ class GarminProcess {
                     }
                     if( ! $where ){
                         $this->status->error( 'Deregistration without a valid userAccessToken or userId' );
+                        continue;
+                    }
+                    if( $userId ){
+                        // Also the Garmin OAuth 2.0 credentials and the app's server tokens
+                        if( ! $this->oauth2->remove_user( $userId ) ){
+                            $this->status->error( sprintf( 'Failed to remove credentials for userId %s', $userId ) );
+                        }
                         continue;
                     }
                     $query = "UPDATE tokens SET userAccessTokenSecret = NULL WHERE $where";
@@ -713,6 +745,127 @@ class GarminProcess {
         return $rv;
     }
 
+    /**
+     *  Login with Garmin OAuth 2.0 (PKCE). The app did the authorization and sends the code;
+     *  the server exchanges it with the client secret, which never leaves the server, and
+     *  keeps Garmin's tokens. The app gets a token_id and a server_token for Bearer auth.
+     *
+     *  @return array [http status, response for the app]
+     */
+    function register_user_oauth2( $code, $code_verifier, $redirect_uri ){
+        $this->ensure_schema();
+        $this->status->clear('users');
+
+        list( $status, $json, $body ) = $this->oauth2->exchange_authorization_code( $code, $code_verifier, $redirect_uri );
+        if( $status != 200 || empty( $json['access_token'] ) ){
+            $this->status->error( sprintf( 'oauth2 code exchange failed http=%d %s', $status, substr( (string)$body, 0, 200 ) ) );
+            $this->status->record( $this->sql, array( 'redirect_uri' => $redirect_uri ) );
+            return array( 401, array( 'error' => 'Garmin did not accept the authorization code' ) );
+        }
+        $access_token = $json['access_token'];
+
+        list( $status, $body ) = $this->oauth2->get_with_access_token( $this->oauth2->url( 'url_oauth2_user_id' ), $access_token );
+        $user = $status == 200 ? json_decode( $body, true ) : NULL;
+        $userId = isset( $user['userId'] ) ? $this->validate_token( $user['userId'] ) : '';
+        if( ! $userId ){
+            $this->status->error( sprintf( 'oauth2 user id failed http=%d %s', $status, substr( (string)$body, 0, 200 ) ) );
+            $this->status->record( $this->sql, array( 'step' => 'user_id' ) );
+            return array( 502, array( 'error' => 'Could not get the Garmin user id' ) );
+        }
+
+        list( $status, $body ) = $this->oauth2->get_with_access_token( $this->oauth2->url( 'url_oauth2_user_permissions' ), $access_token );
+        $permissions = $status == 200 ? json_decode( $body, true ) : NULL;
+        if( ! is_array( $permissions ) ){
+            // Not fatal: the login works, we just can't tell the app about missing permissions
+            $this->status->error( sprintf( 'oauth2 permissions failed http=%d', $status ) );
+            $permissions = NULL;
+        }
+
+        if( ! $this->oauth2->store( $userId, $json, 'login', $permissions ) ){
+            $this->status->error( 'failed to store oauth2 credentials: '.$this->oauth2->last_error );
+            $this->status->record( $this->sql, array( 'userId' => $userId ) );
+            return array( 500, array( 'error' => 'Failed to register' ) );
+        }
+
+        $prev = $this->sql->query_first_row( sprintf( "SELECT cs_user_id FROM users WHERE userId = '%s'", $this->sql->escape( $userId ) ) );
+        if( $prev ){
+            $cs_user_id = intval( $prev['cs_user_id'] );
+        }else{
+            $this->sql->insert_or_update( 'users', array( 'userId' => $userId ) );
+            $cs_user_id = intval( $this->sql->insert_id() );
+        }
+
+        list( $server_token, $server_token_hash ) = Auth::new_server_token();
+        $stmt = $this->sql->connection->prepare( 'INSERT INTO tokens (cs_user_id, userId, server_token_hash) VALUES (?, ?, ?)' );
+        $token_id = 0;
+        if( $stmt ){
+            $stmt->bind_param( 'iss', $cs_user_id, $userId, $server_token_hash );
+            if( $stmt->execute() ){
+                $token_id = intval( $stmt->insert_id );
+            }
+            $stmt->close();
+        }
+        if( $cs_user_id <= 0 || $token_id <= 0 ){
+            $this->status->error( sprintf( 'failed to save user %d / token %d: %s', $cs_user_id, $token_id, $this->sql->connection->error ) );
+            $this->status->record( $this->sql, array( 'userId' => $userId ) );
+            return array( 500, array( 'error' => 'Failed to register' ) );
+        }
+        if( $this->status->hasError() ){
+            $this->status->record( $this->sql, array( 'userId' => $userId ) );
+        }
+
+        return array( 200, array(
+            'token_id' => $token_id,
+            'cs_user_id' => $cs_user_id,
+            'userId' => $userId,
+            'server_token' => $server_token,
+            'permissions' => $permissions,
+            // Unknown permissions: don't warn the user about something we couldn't check
+            'activity_export' => $permissions === NULL || in_array( 'ACTIVITY_EXPORT', $permissions ),
+        ) );
+    }
+
+    /**
+     *  The user logged out of the app: remove their consent at Garmin, as Garmin requires
+     *  wherever a user would reasonably believe they're disconnecting, then their credentials.
+     *  With OAuth 2.0 the grant is per Garmin user, so all of that user's rows are cleared;
+     *  with OAuth 1.0 only this row's token.
+     *
+     *  Local credentials are cleared even if Garmin's call fails: the user asked to leave.
+     *
+     *  @return array response for the app
+     */
+    function disconnect_user( $token_id ){
+        $this->ensure_schema();
+        $this->status->clear('users');
+
+        $user = $this->user_info_for_token_id( $token_id );
+        $userId = $user['userId'] ?? NULL;
+        $method = 'none';
+        $http = 0;
+        if( $userId && $this->oauth2->has_credentials( $userId ) ){
+            $method = 'oauth2';
+            list( $http, $body ) = $this->oauth2->delete_registration( $userId );
+            $this->oauth2->remove_user( $userId );
+        }else if( ! empty( $user['userAccessToken'] ) && ! empty( $user['userAccessTokenSecret'] ) && isset( $this->api_config['url_user_registration'] ) ){
+            $method = 'oauth1';
+            $url = $this->api_config['url_user_registration'];
+            $header = $this->auth->authorization_header( $url, $user['userAccessToken'], $user['userAccessTokenSecret'], NULL, NULL, 'DELETE' );
+            list( $http, $body ) = $this->oauth2->http( 'DELETE', $url, array( $header ) );
+            $this->sql->execute_query( sprintf( "UPDATE tokens SET userAccessTokenSecret = NULL, server_token_hash = NULL WHERE userAccessToken = '%s'",
+                                                $this->sql->escape( $user['userAccessToken'] ) ) );
+        }
+        // Whatever happened above, this row can't be used any more
+        $this->sql->execute_query( sprintf( 'UPDATE tokens SET userAccessTokenSecret = NULL, server_token_hash = NULL WHERE token_id = %d', intval( $token_id ) ) );
+
+        $ok = $method == 'none' || ( $http >= 200 && $http < 300 );
+        if( ! $ok ){
+            $this->status->error( sprintf( 'Garmin deregistration failed (%s) http=%d %s', $method, $http, substr( (string)( $body ?? '' ), 0, 200 ) ) );
+            $this->status->record( $this->sql, array( 'token_id' => intval( $token_id ), 'userId' => $userId ) );
+        }
+        return array( 'status' => $ok ? 1 : 0, 'garmin' => $method, 'garmin_http' => $http );
+    }
+
     function user_info_for_token_id( $token_id ){
         $query = sprintf( "SELECT * FROM tokens WHERE token_id = %d", $token_id );
 
@@ -764,7 +917,7 @@ class GarminProcess {
      *  so prefer a row linked to a user, then one still live, then the newest.
      */
     function user_info_for_garmin_user_id( $userId ){
-        $query = sprintf( "SELECT * FROM tokens WHERE userId = '%s' ORDER BY cs_user_id IS NULL, userAccessTokenSecret IS NULL, token_id DESC LIMIT 1",
+        $query = sprintf( "SELECT * FROM tokens WHERE userId = '%s' ORDER BY cs_user_id IS NULL, (userAccessTokenSecret IS NULL AND server_token_hash IS NULL), token_id DESC LIMIT 1",
                           $this->sql->escape( $userId ) );
 
         return $this->sql->query_first_row( $query );
@@ -794,6 +947,59 @@ class GarminProcess {
      * It will save the output from the api call back and add to the queue
      * a command to process it later
      */
+    /**
+     *  Garmin's OAuth 2.0 spec says notifications carry the user id "in the header", while
+     *  every example has `userId` in the body. Best guess: body (designs/oauth2-migration.md).
+     *  If an entry has no `userId`, take it from a user id header if there is one, and record
+     *  the request headers in error_<cachetable> either way, so the real format shows up.
+     */
+    function add_user_id_from_headers( $data, $cachetable ){
+        if( ! is_array( $data ) ){
+            return $data;
+        }
+        $missing = false;
+        foreach( $data as $summary_type => $entries ){
+            if( is_array( $entries ) ){
+                foreach( $entries as $entry ){
+                    if( is_array( $entry ) && empty( $entry['userId'] ) ){
+                        $missing = true;
+                    }
+                }
+            }
+        }
+        if( ! $missing ){
+            return $data;
+        }
+
+        $headers = function_exists( 'apache_request_headers' ) ? apache_request_headers() : array();
+        $userId = NULL;
+        foreach( $headers as $name => $value ){
+            // e.g. Garmin-User-Id, X-Garmin-UserId; not Garmin-Client-Id
+            if( preg_match( '/user-?id$/i', $name ) && $this->validate_token( $value ) ){
+                $userId = $value;
+                break;
+            }
+        }
+        if( $userId ){
+            foreach( $data as $summary_type => $entries ){
+                if( is_array( $entries ) ){
+                    foreach( $entries as $i => $entry ){
+                        if( is_array( $entry ) && empty( $entry['userId'] ) ){
+                            $data[$summary_type][$i]['userId'] = $userId;
+                        }
+                    }
+                }
+            }
+        }
+
+        $status = new StatusCollector();
+        $status->clear( $cachetable );
+        $status->error( $userId ? 'notification without userId in the body, taken from a header' : 'notification without userId in the body or a header' );
+        unset( $headers['Authorization'] );
+        $status->record( $this->sql, array( 'headers' => $headers ) );
+        return $data;
+    }
+
     function save_to_cache($table){
         $success = false;
         $start_time = time();
@@ -815,6 +1021,7 @@ class GarminProcess {
             if( ! $data ) {
                 $this->status->error( 'Failed to decode json' );
             }else{
+                $data = $this->add_user_id_from_headers( $data, $cachetable );
                 $query = sprintf( 'INSERT INTO %s (started_ts,json) VALUES (FROM_UNIXTIME(%d),?)', $cachetable, $start_time);
 
                 $stmt = $this->sql->connection->prepare($query);
@@ -1142,6 +1349,7 @@ class GarminProcess {
     function validate_user( $token_id ){
         $user = $this->user_info_for_token_id($token_id);
         unset( $user['userAccessTokenSecret'] );
+        unset( $user['server_token_hash'] );
 
         return $user;
     }
@@ -1502,19 +1710,20 @@ class GarminProcess {
             $fnamebase = basename( $path );
             $pathdir = dirname( $path );
 
-            if( isset($user['userAccessTokenSecret'] ) ){
-                $userAccessTokenSecret = $user['userAccessTokenSecret'];
+            if( $user && isset($row['userId']) && !isset($user['userId'])){
+                $this->sql->insert_or_update('tokens', array('userId'=>$row['userId'], 'token_id'=>$user['token_id']), array( 'token_id' ) );
+                $user['userId'] = $row['userId'];
+            }
 
-                if( isset($row['userId']) && !isset($user['userId'])){
-                    $this->sql->insert_or_update('tokens', array('userId'=>$row['userId'], 'token_id'=>$user['token_id']), array( 'token_id' ) );
-                }
+            // OAuth 1.0 secret, or OAuth 2.0 credentials for the Garmin user
+            if( $user && ( isset($user['userAccessTokenSecret'] ) || $this->oauth2->has_credentials( $user['userId'] ?? NULL ) ) ){
             
                 $url = $callback_url;
                 $ntries = 3;
                 $nextwait = 1;
                 $data = false;
                 while( $ntries > 0 ){
-                    $data = $this->get_url_data( $url, $userAccessToken, $userAccessTokenSecret );
+                    $data = $this->auth->get_url_data_for_user( $url, $user );
                     if( $data ){
                         $validFormat = $this->validate_fit_file($data, $fileType);
                     }else{

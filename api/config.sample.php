@@ -52,6 +52,18 @@ $api_config = array(
 	'url_user_id' => 'https://healthapi.garmin.com/wellness-api/rest/user/id',
 	'url_user_registration' => 'https://healthapi.garmin.com/wellness-api/rest/user/registration',
 
+    // Garmin OAuth 2.0 (designs/oauth2-migration.md). Issued by Garmin when the app is converted.
+    // Without the secret, OAuth 2.0 login and token refresh are off.
+    //'oauth2ClientId' => '',
+    //'oauth2ClientSecret' => '',
+    // 'basic' sends the client credentials as a Basic header to the token endpoint, otherwise as fields
+    //'oauth2ClientAuth' => 'body',
+    // New logins use OAuth 2.0 when 'oauth2' (and oauth2ClientId is set): /api/status/api tells the app
+    //'garmin_login' => 'oauth2',
+    // Garmin's URLs are the defaults (lib/GarminOAuth2.php); set these only for a mock
+    //'url_oauth2_token' => '', 'url_oauth2_exchange' => '', 'url_oauth2_user_id' => '',
+    //'url_oauth2_user_permissions' => '', 'url_oauth2_user_registration' => '',
+
     // OPTIONAL Config
     // A path to a tmp directory to use, in case the default directory can't be used
     // For permissions issues. by default save in 'tmp'  in current dir

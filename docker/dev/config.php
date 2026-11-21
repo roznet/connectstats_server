@@ -25,6 +25,16 @@ $api_config = array(
     'url_user_id' => 'http://app/mock/garmin/user_id.php',
     'url_user_registration' => 'http://app/mock/garmin/user_registration.php',
 
+    // Garmin OAuth 2.0, mocked (docker/dev/mock/garmin/oauth2.php). Login on, as after the conversion.
+    'oauth2ClientId' => 'local-oauth2-client-id',
+    'oauth2ClientSecret' => 'local-oauth2-client-secret',
+    'garmin_login' => 'oauth2',
+    'url_oauth2_token' => 'http://app/mock/garmin/oauth2.php?op=token',
+    'url_oauth2_exchange' => 'http://app/mock/garmin/oauth2.php?op=exchange',
+    'url_oauth2_user_id' => 'http://app/mock/garmin/oauth2.php?op=user_id',
+    'url_oauth2_user_permissions' => 'http://app/mock/garmin/oauth2.php?op=permissions',
+    'url_oauth2_user_registration' => 'http://app/mock/garmin/oauth2.php?op=registration',
+
     'tmp' => '/var/www/tmp',
     'log' => '/var/www/log',
     's3_cache_local' => '/var/www/tmp/s3_cache',

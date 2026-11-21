@@ -10,7 +10,7 @@ Provide confidence when making code changes. Two modes address different scenari
 
 ## Running Tests
 
-The simplest setup is the local Docker stack (PHP 8.5 + MySQL 8.4, see `docker/README.md`). It has a dedicated database with the `dev` marker, a Garmin user-id mock and the queue worker:
+The simplest setup is the local Docker stack (PHP 8.5 + MySQL 8.4, see `docker/README.md`). It has a dedicated database with the `dev` marker, Garmin mocks (`docker/dev/mock/garmin`: OAuth 1.0 user id and deregistration, activity file download, and the OAuth 2.0 token, exchange and Bearer endpoints in `oauth2.php`) and the queue worker:
 
 ```bash
 cp .env.sample .env && docker compose up -d --wait
@@ -91,8 +91,8 @@ No external test framework — lightweight custom runner matching project simpli
 
 Read-only checks against the database, no HTTP requests:
 - `dev` marker table exists (safety check for `reset_schema`)
-- All 15 `ensure_schema` tables exist
-- Schema version >= 8
+- All 16 `ensure_schema` tables exist
+- Schema version >= 9
 - Key columns on critical tables (`activities.parent_activity_id`, `tokens.userAccessTokenSecret`, `fitfiles.callbackURL`, etc.)
 - AUTO_INCREMENT on primary keys that need it (9 tables)
 - Queue DB: `tasks`, `queues`, `schema` tables exist, version >= 2
@@ -107,7 +107,7 @@ Requires at least one user with token_id 1 and 2 in the DB:
 - `validateuser` → JSON with `token_id`
 - File with invalid `activity_id` → graceful error (not 500)
 
-### `full` — End-to-End Integration (57 tests)
+### `full` — End-to-End Integration (108 tests)
 
 Destructive — resets the database, then:
 1. **Reset**: `GET /api/connectstats/reset` with system auth (requires `serviceKey`)
@@ -116,7 +116,9 @@ Destructive — resets the database, then:
 4. **Process**: Wait for queue worker (polls `processed_ts`), fall back to running `runactivities.php` / `runfitfiles.php` directly
 5. **Validate**: Fetch via `/api/connectstats/search`, verify activity count (24), all summaryIds present, parent/child multi-sport links
 6. **Auth**: Wrong token still rejected after rebuild
-7. **Schema**: Runs all schema checks to confirm tables are correct after rebuild
+7. **Migration formats**: notifications without `userAccessToken`, deregistration by token and by `userId`, hostile values, schema upgrade
+8. **OAuth 2.0**: login, Bearer auth, token exchange, Bearer downloads, refresh (on expiry, on a 401, scheduled, rejected, failing), deregistration and disconnect, `userId` from a header (see [oauth2-migration](oauth2-migration.md), Testing)
+9. **Schema**: Runs all schema checks to confirm tables are correct after rebuild
 
 ## Key Design Choices
 

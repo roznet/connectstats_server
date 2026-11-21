@@ -43,6 +43,29 @@ CREATE TABLE tokens (
     userId VARCHAR(128),
     userAccessTokenSecret VARCHAR(128),
     ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    server_token_hash CHAR(64)      -- v9: SHA-256 of the Bearer server_token (OAuth 2.0 logins)
+);
+```
+
+One row per app login. OAuth 1.0 logins have `userAccessToken`/`userAccessTokenSecret`, which stay the app's credentials with the server even after the Garmin token exchange. OAuth 2.0 logins have no OAuth 1.0 token, only `server_token_hash`. `userId` is indexed (`idx_tokens_userId`, created by hand: `ensure_schema()` doesn't manage indexes).
+
+### garmin_oauth2
+
+Garmin OAuth 2.0 credentials (schema v9), one row per Garmin user, shared by all that user's `tokens` rows. Managed by `api/lib/GarminOAuth2.php`; see [oauth2-migration](oauth2-migration.md).
+
+```sql
+CREATE TABLE garmin_oauth2 (
+    userId VARCHAR(128) PRIMARY KEY,   -- Garmin userId
+    access_token TEXT,                 -- 24 h
+    refresh_token TEXT,                -- 3 months, single use: every refresh replaces it
+    access_expires_ts BIGINT(20) UNSIGNED,
+    refresh_expires_ts BIGINT(20) UNSIGNED,
+    scope TEXT,
+    permissions TEXT,                  -- JSON list from /user/permissions, at login
+    source VARCHAR(16),                -- exchange, login or refresh (last write)
+    refresh_failures INT UNSIGNED DEFAULT 0,  -- transient failures since the last success
+    ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```

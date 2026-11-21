@@ -10,7 +10,7 @@ MAIN_TABLES = [
     "cache_activities", "cache_activities_map",
     "cache_fitfiles", "cache_fitfiles_map",
     "activities", "weather", "fitsession", "fitfiles",
-    "assets", "assets_s3", "schema",
+    "assets", "assets_s3", "garmin_oauth2", "schema",
 ]
 
 # Tables in the queue database
@@ -19,7 +19,8 @@ QUEUE_TABLES = ["tasks", "queues", "schema"]
 # Key columns that must exist on critical tables
 KEY_COLUMNS = {
     "activities": ["activity_id", "parent_activity_id", "summaryId", "cs_user_id"],
-    "tokens": ["token_id", "userAccessToken", "userAccessTokenSecret", "cs_user_id"],
+    "tokens": ["token_id", "userAccessToken", "userAccessTokenSecret", "cs_user_id", "server_token_hash"],
+    "garmin_oauth2": ["userId", "access_token", "refresh_token", "access_expires_ts", "refresh_expires_ts"],
     "fitfiles": ["file_id", "callbackURL", "summaryId", "activity_id"],
     "users": ["cs_user_id", "userId"],
 }
@@ -75,11 +76,11 @@ def run(config: Config, suite: TestSuite) -> None:
             suite.check(_table_exists(cursor, table), f"table '{table}' exists")
 
         # Schema version
-        suite.start_test("schema version >= 8")
+        suite.start_test("schema version >= 9")
         cursor.execute("SELECT MAX(version) AS v FROM `schema`")
         row = cursor.fetchone()
         version = int(row[0]) if row and row[0] else 0
-        suite.check(version >= 8, "schema version >= 8", f"got {version}")
+        suite.check(version >= 9, "schema version >= 9", f"got {version}")
 
         # Key columns
         for table, columns in KEY_COLUMNS.items():

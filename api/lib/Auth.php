@@ -31,9 +31,10 @@
  * - OAuth 1.0 signature verification (for app-to-server and server-to-Garmin)
  * - System/service key authentication (for maintenance tasks)
  *
- * Future (OAuth 2.0 migration):
- * - Bearer token authentication (server-issued tokens for app-to-server)
- * - OAuth 2.0 token management (for server-to-Garmin)
+ * - Bearer authentication with a server-issued `server_token` (app-to-server, logins made
+ *   with OAuth 2.0, see designs/oauth2-migration.md)
+ * - Garmin calls for a user: Bearer when the user has OAuth 2.0 credentials
+ *   (GarminOAuth2), otherwise OAuth 1.0
  */
 class Auth {
 
@@ -44,6 +45,9 @@ class Auth {
 
     // Status collector for error reporting (optional)
     private $status = null;
+
+    // GarminOAuth2, for Garmin calls on behalf of users with OAuth 2.0 credentials (optional)
+    private $oauth2 = null;
 
     /**
      * @param sql_helper $sql Database connection
@@ -67,6 +71,10 @@ class Auth {
      */
     function set_status($status) {
         $this->status = $status;
+    }
+
+    function set_oauth2($oauth2) {
+        $this->oauth2 = $oauth2;
     }
 
     /**
@@ -214,7 +222,11 @@ class Auth {
         $header = $this->get_authorization_header();
 
         if ($header !== null) {
-            $failed = !$this->verify_oauth1_signature($header, $full_url, $token_id);
+            if (strncasecmp($header, 'Bearer ', 7) === 0) {
+                $failed = !$this->verify_server_token(trim(substr($header, 7)), $token_id);
+            } else {
+                $failed = !$this->verify_oauth1_signature($header, $full_url, $token_id);
+            }
         }
 
         if ($failed) {
@@ -303,6 +315,31 @@ class Auth {
                && $row['token_id'] == $token_id;
     }
 
+    /**
+     * A new random server_token for an OAuth 2.0 login, and the hash to store.
+     * Only the hash is kept, so a database leak doesn't expose usable tokens.
+     *
+     * @return array [token to give to the app, hash to store in tokens.server_token_hash]
+     */
+    static function new_server_token() {
+        $token = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+        return [$token, hash('sha256', $token)];
+    }
+
+    /**
+     * Verify a Bearer server_token against the hash stored for token_id
+     */
+    private function verify_server_token($server_token, $token_id) {
+        if ($server_token === '' || intval($token_id) <= 0) {
+            return false;
+        }
+        $row = $this->sql->query_first_row(sprintf('SELECT server_token_hash FROM tokens WHERE token_id = %d', intval($token_id)));
+        if (empty($row['server_token_hash'])) {
+            return false;
+        }
+        return hash_equals($row['server_token_hash'], hash('sha256', $server_token));
+    }
+
     // =========================================================================
     // Authenticated HTTP Requests (Server -> External APIs)
     // =========================================================================
@@ -341,6 +378,32 @@ class Auth {
 
         curl_close($ch);
         return $data;
+    }
+
+    /**
+     * GET a Garmin URL on behalf of a user (a `tokens` row): Bearer if the Garmin user
+     * has OAuth 2.0 credentials, otherwise OAuth 1.0 with the row's token and secret.
+     *
+     * @param array $user tokens row
+     * @return string|false Response data, false on failure or if the user has no usable credentials
+     */
+    function get_url_data_for_user($url, $user) {
+        $userId = $user['userId'] ?? null;
+        if ($this->oauth2 && $userId && $this->oauth2->has_credentials($userId)) {
+            list($status, $data) = $this->oauth2->bearer_request('GET', $url, $userId);
+            $this->log('CURL', 'Bearer userId: %s URL: %s http=%d', $userId, $url, $status);
+            if ($status >= 200 && $status < 300) {
+                return $data;
+            }
+            if ($this->status) {
+                $this->status->error(sprintf('Bearer call failed http=%d', $status));
+            }
+            return false;
+        }
+        if (empty($user['userAccessToken']) || empty($user['userAccessTokenSecret'])) {
+            return false;
+        }
+        return $this->get_url_data($url, $user['userAccessToken'], $user['userAccessTokenSecret']);
     }
 
     /**

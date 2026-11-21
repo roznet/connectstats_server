@@ -1,12 +1,14 @@
 """Full integration test — destructive (resets the database)."""
 
+import base64
 import copy
+import hashlib
 import json
 import os
 import subprocess
 import time
 
-from .client import ConnectStatsClient
+from .client import ConnectStatsClient, Response
 from .config import Config
 from .runner import TestSuite
 from . import test_schema
@@ -259,6 +261,209 @@ def _test_schema_upgrade(client: ConnectStatsClient, config: Config, suite: Test
     suite.check(ok, "column change applied, rest kept", f"columns={columns}, rows={count}, stderr={result.stderr[:200]}")
 
 
+def _b64u(s: str) -> str:
+    return base64.urlsafe_b64encode(s.encode()).decode().rstrip("=")
+
+
+VERIFIER = "v" * 50
+REDIRECT = "connectstats://oauth2"
+
+
+def _oauth2_login(client: ConnectStatsClient, user_id: str) -> Response:
+    return client.request("POST", "api/connectstats/user_register_oauth2", fields={
+        "code": f"code.{_b64u(user_id)}", "code_verifier": VERIFIER, "redirect_uri": REDIRECT})
+
+
+def _wait_for_file(config: Config, suite: TestSuite, garmin_dir: str, summary_id: str) -> list:
+    found = []
+    for _ in range(15):
+        found = _db_query(config, "SELECT file_id, cs_user_id, asset_id FROM fitfiles WHERE summaryId = %s", (summary_id,))
+        if found and found[0][2]:
+            return found
+        time.sleep(1)
+    if found and not found[0][2]:
+        _run_php("runcallback.php", ["fitfiles", str(found[0][0])], garmin_dir, verbose=suite.verbose)
+        found = _db_query(config, "SELECT file_id, cs_user_id, asset_id FROM fitfiles WHERE summaryId = %s", (summary_id,))
+    return found
+
+
+def _post_file(client: ConnectStatsClient, user_id: str, summary_id: str) -> Response:
+    return client.post_json("api/garmin/file", {"file": [{
+        "userId": user_id, "summaryId": summary_id, "fileType": "FIT",
+        "callbackURL": f"http://app/mock/garmin/activity_file.php?id={summary_id}&token=callback-token",
+        "startTimeInSeconds": int(time.time()),
+    }]})
+
+
+def _test_oauth2(client: ConnectStatsClient, config: Config, suite: TestSuite, api_dir: str, garmin_dir: str) -> None:
+    cs_dir = os.path.join(api_dir, "connectstats")
+
+    # Status endpoint tells the app which login to use (dev config has garmin_login = oauth2)
+    suite.start_test("status returns garmin_login and client id")
+    resp = client.request("GET", "api/status/api")
+    data = resp.json_data or {}
+    suite.check(data.get("garmin_login") == "oauth2" and data.get("garmin_client_id") == "local-oauth2-client-id",
+                "status returns garmin_login and client id", f"got {data}")
+
+    # Login
+    suite.start_test("oauth2 login")
+    resp = _oauth2_login(client, "oauth2-user")
+    login = resp.json_data or {}
+    ok = resp.ok and login.get("token_id") and login.get("server_token") and login.get("userId") == "oauth2-user"
+    suite.check(bool(ok), "oauth2 login", f"status={resp.status} body={resp.body[:200]!r}")
+    if not ok:
+        return
+    token_id, server_token = login["token_id"], login["server_token"]
+
+    suite.start_test("oauth2 login stores a hash, not the server token")
+    rows = _db_query(config, "SELECT server_token_hash, userAccessToken, userAccessTokenSecret FROM tokens WHERE token_id = %s", (token_id,))
+    suite.check(bool(rows) and rows[0][0] == hashlib.sha256(server_token.encode()).hexdigest() and rows[0][1] is None and rows[0][2] is None,
+                "oauth2 login stores a hash, not the server token", f"got {rows}")
+    suite.start_test("oauth2 login reports activity export")
+    suite.check(login.get("activity_export") is True, "oauth2 login reports activity export", f"got {login}")
+    resp = _oauth2_login(client, "noexport-user")
+    suite.start_test("oauth2 login without activity export flagged")
+    suite.check(resp.ok and (resp.json_data or {}).get("activity_export") is False,
+                "oauth2 login without activity export flagged", f"status={resp.status} body={resp.body[:200]!r}")
+
+    for name, method, fields, expected in (
+            ("oauth2 login with bad code", "POST", {"code": "bad", "code_verifier": VERIFIER, "redirect_uri": REDIRECT}, 401),
+            ("oauth2 login with GET refused", "GET", None, 405),
+            ("oauth2 login without verifier refused", "POST", {"code": "code.x", "redirect_uri": REDIRECT}, 400)):
+        suite.start_test(name)
+        resp = client.request(method, "api/connectstats/user_register_oauth2", fields=fields)
+        suite.check(resp.status == expected, name, f"status={resp.status}")
+
+    # Bearer auth app -> server
+    suite.start_test("bearer search")
+    resp = client.get_bearer(f"api/connectstats/search?token_id={token_id}&start=0&limit=5", server_token)
+    suite.check(resp.ok and resp.json_data is not None and "activityList" in resp.json_data, "bearer search", f"status={resp.status}")
+    suite.start_test("bearer with another token_id rejected")
+    resp = client.get_bearer("api/connectstats/search?token_id=1&start=0&limit=5", server_token)
+    suite.check(resp.status == 401, "bearer with another token_id rejected", f"status={resp.status}")
+    suite.start_test("invalid bearer rejected")
+    resp = client.get_bearer(f"api/connectstats/search?token_id={token_id}&start=0&limit=5", "not-the-token")
+    suite.check(resp.status == 401, "invalid bearer rejected", f"status={resp.status}")
+    suite.start_test("bearer validateuser hides hash")
+    resp = client.get_bearer(f"api/connectstats/validateuser?token_id={token_id}", server_token)
+    suite.check(resp.ok and resp.json_data and resp.json_data.get("token_id") is not None and "server_token_hash" not in resp.json_data,
+                "bearer validateuser hides hash", f"status={resp.status} body={resp.body[:200]!r}")
+
+    # Exchange: own account first, as on prod
+    suite.start_test("exchange dry run changes nothing")
+    _run_php("exchange_oauth2_tokens.php", ["--user-id=testuser"], cs_dir, verbose=suite.verbose)
+    suite.check(not _db_query(config, "SELECT userId FROM garmin_oauth2 WHERE userId = 'testuser'"),
+                "exchange dry run changes nothing")
+    suite.start_test("exchange for one user")
+    ok = _run_php("exchange_oauth2_tokens.php", ["--execute", "--user-id=testuser"], cs_dir, verbose=suite.verbose)
+    rows = _db_query(config, "SELECT source, access_token LIKE 'at.%%', refresh_expires_ts > UNIX_TIMESTAMP() + 80*86400 FROM garmin_oauth2 WHERE userId = 'testuser'")
+    suite.check(ok and rows == [("exchange", 1, 1)], "exchange for one user", f"ok={ok} rows={rows}")
+    suite.start_test("exchange is one user only")
+    others = _db_query(config, "SELECT COUNT(*) FROM garmin_oauth2 WHERE source = 'exchange'")[0][0]
+    suite.check(others == 1, "exchange is one user only", f"exchanged={others}")
+    suite.start_test("oauth1 app auth works after exchange")
+    resp = client.get("api/connectstats/search?token_id=1&start=0&limit=5", token_id=1)
+    suite.check(resp.ok, "oauth1 app auth works after exchange", f"status={resp.status}")
+
+    # Downloads use Bearer once the user has OAuth 2.0 credentials: without the OAuth 1.0
+    # secret (as 30 days after the exchange), only Bearer can work
+    secret = _db_query(config, "SELECT userAccessTokenSecret FROM tokens WHERE userAccessToken = 'testtoken'")[0][0]
+    _db_execute(config, "UPDATE tokens SET userAccessTokenSecret = NULL WHERE userAccessToken = 'testtoken'")
+    try:
+        _post_file(client, "testuser", "9300000001")
+        _wait_for_caches(config, garmin_dir, suite)
+        suite.start_test("file downloaded with bearer")
+        found = _wait_for_file(config, suite, garmin_dir, "9300000001")
+        suite.check(bool(found) and bool(found[0][2]), "file downloaded with bearer", f"got {found}")
+
+        # Expired access token: refreshed before the call, refresh token rotated
+        old_refresh = _db_query(config, "SELECT refresh_token FROM garmin_oauth2 WHERE userId = 'testuser'")[0][0]
+        _db_execute(config, "UPDATE garmin_oauth2 SET access_expires_ts = UNIX_TIMESTAMP() WHERE userId = 'testuser'")
+        _post_file(client, "testuser", "9300000002")
+        _wait_for_caches(config, garmin_dir, suite)
+        found = _wait_for_file(config, suite, garmin_dir, "9300000002")
+        rows = _db_query(config, "SELECT refresh_token, access_expires_ts > UNIX_TIMESTAMP() + 3600, source FROM garmin_oauth2 WHERE userId = 'testuser'")
+        suite.start_test("expired access token refreshed")
+        suite.check(bool(found) and bool(found[0][2]) and rows and rows[0][0] != old_refresh and rows[0][1] == 1 and rows[0][2] == "refresh",
+                    "expired access token refreshed", f"found={found} rows={[(r[1], r[2]) for r in rows]}")
+
+        # Token Garmin rejects before its expiry: refresh once and retry
+        _db_execute(config, "UPDATE garmin_oauth2 SET access_token = CONCAT('at.', %s, '.stale') WHERE userId = 'testuser'", (_b64u("testuser"),))
+        _post_file(client, "testuser", "9300000003")
+        _wait_for_caches(config, garmin_dir, suite)
+        found = _wait_for_file(config, suite, garmin_dir, "9300000003")
+        suite.start_test("rejected access token refreshed and retried")
+        suite.check(bool(found) and bool(found[0][2]), "rejected access token refreshed and retried", f"got {found}")
+    finally:
+        _db_execute(config, "UPDATE tokens SET userAccessTokenSecret = %s WHERE userAccessToken = 'testtoken'", (secret,))
+
+    # Scheduled refresh: refreshes what expires soon; a rejected refresh removes the credentials
+    _oauth2_login(client, "revoked-user")
+    _oauth2_login(client, "flaky-user")
+    _db_execute(config, "UPDATE garmin_oauth2 SET refresh_expires_ts = UNIX_TIMESTAMP() + 86400 "
+                        "WHERE userId IN ('testuser', 'revoked-user', 'flaky-user')")
+    before = dict(_db_query(config, "SELECT userId, refresh_token FROM garmin_oauth2"))
+    _run_php("refresh_oauth2_tokens.php", [], cs_dir, verbose=suite.verbose)
+    after = dict(_db_query(config, "SELECT userId, refresh_token FROM garmin_oauth2"))
+    suite.start_test("scheduled refresh renews expiring tokens")
+    suite.check(after.get("testuser") not in (None, before.get("testuser")) and after.get("oauth2-user") == before.get("oauth2-user"),
+                "scheduled refresh renews expiring tokens", "")
+    suite.start_test("rejected refresh removes credentials")
+    revoked = _db_query(config, "SELECT COUNT(*) FROM tokens WHERE userId = 'revoked-user' AND server_token_hash IS NOT NULL")[0][0]
+    suite.check("revoked-user" not in after and revoked == 0, "rejected refresh removes credentials", f"live={revoked}")
+    suite.start_test("failed refresh keeps credentials")
+    flaky = _db_query(config, "SELECT refresh_failures FROM garmin_oauth2 WHERE userId = 'flaky-user'")
+    suite.check(after.get("flaky-user") == before.get("flaky-user") and flaky and flaky[0][0] >= 1,
+                "failed refresh keeps credentials", f"got {flaky}")
+
+    # Deregistration webhook by userId removes OAuth 2.0 credentials and server tokens
+    resp = _oauth2_login(client, "dereg-oauth2")
+    dereg = resp.json_data or {}
+    client.post_json("api/garmin/deregistration", {"deregistrations": [{"userId": "dereg-oauth2"}]})
+    suite.start_test("deregistration removes oauth2 credentials")
+    resp = client.get_bearer(f"api/connectstats/search?token_id={dereg.get('token_id')}&start=0&limit=5", dereg.get("server_token", ""))
+    gone = not _db_query(config, "SELECT userId FROM garmin_oauth2 WHERE userId = 'dereg-oauth2'")
+    suite.check(resp.status == 401 and gone, "deregistration removes oauth2 credentials", f"status={resp.status} gone={gone}")
+
+    # Logout: DELETE at Garmin, then the token stops working
+    suite.start_test("disconnect oauth2 user")
+    resp = client.get_bearer(f"api/connectstats/user_disconnect?token_id={token_id}", server_token)
+    data = resp.json_data or {}
+    suite.check(resp.ok and data.get("status") == 1 and data.get("garmin") == "oauth2" and data.get("garmin_http") == 204,
+                "disconnect oauth2 user", f"status={resp.status} body={resp.body[:200]!r}")
+    suite.start_test("token unusable after disconnect")
+    resp = client.get_bearer(f"api/connectstats/search?token_id={token_id}&start=0&limit=5", server_token)
+    gone = not _db_query(config, "SELECT userId FROM garmin_oauth2 WHERE userId = 'oauth2-user'")
+    suite.check(resp.status == 401 and gone, "token unusable after disconnect", f"status={resp.status} gone={gone}")
+
+    # OAuth 1.0 user disconnect: signed DELETE (mock needs secret = "secret-" + token)
+    _db_execute(config, "INSERT INTO tokens (cs_user_id, userId, userAccessToken, userAccessTokenSecret) VALUES (999, 'disc-user', 'disc1', 'secret-disc1')")
+    disc_id = _db_query(config, "SELECT token_id FROM tokens WHERE userAccessToken = 'disc1'")[0][0]
+    client.clear_token_cache()
+    suite.start_test("disconnect oauth1 user")
+    resp = client.get(f"api/connectstats/user_disconnect?token_id={disc_id}", token_id=disc_id)
+    data = resp.json_data or {}
+    live = _db_query(config, "SELECT userAccessTokenSecret FROM tokens WHERE token_id = %s", (disc_id,))[0][0]
+    suite.check(resp.ok and data.get("garmin") == "oauth1" and data.get("garmin_http") == 204 and live is None,
+                "disconnect oauth1 user", f"status={resp.status} body={resp.body[:200]!r}")
+
+
+def _test_user_id_header(client: ConnectStatsClient, config: Config, suite: TestSuite, garmin_dir: str) -> None:
+    template = copy.deepcopy(_load_sample("sample-backfill-activities.json")["activities"][0])
+    template.pop("userAccessToken", None)
+    template.pop("userId", None)
+    template.update(summaryId="9400000001", startTimeInSeconds=int(time.time()) + 4000)
+    cs_user_id = _db_query(config, "SELECT cs_user_id FROM tokens WHERE userAccessToken = 'testtoken'")[0][0]
+
+    suite.start_test("notification with userId in a header")
+    resp = client.post_json("api/garmin/activities", {"activities": [template]}, headers={"Garmin-User-Id": "testuser"})
+    _wait_for_caches(config, garmin_dir, suite)
+    rows = _db_query(config, "SELECT cs_user_id, userId FROM activities WHERE summaryId = '9400000001'")
+    logged = _db_query(config, "SELECT COUNT(*) FROM error_cache_activities WHERE message LIKE '%%taken from a header%%'")[0][0]
+    suite.check(resp.ok and rows == [(cs_user_id, "testuser")] and logged >= 1,
+                "notification with userId in a header", f"status={resp.status} rows={rows} logged={logged}")
+
+
 def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
     """Run the full destructive integration test."""
 
@@ -422,5 +627,11 @@ def run(client: ConnectStatsClient, config: Config, suite: TestSuite) -> None:
     # 11. Schema upgrade keeps AUTO_INCREMENT and only changes what changed
     _test_schema_upgrade(client, config, suite, api_dir)
 
-    # 12. Run schema checks
+    # 12. OAuth 2.0: login, Bearer auth, exchange, Bearer downloads, refresh, disconnect
+    _test_oauth2(client, config, suite, api_dir, garmin_dir)
+
+    # 13. Notification with the Garmin userId in a header instead of the body
+    _test_user_id_header(client, config, suite, garmin_dir)
+
+    # 14. Run schema checks
     test_schema.run(config, suite)

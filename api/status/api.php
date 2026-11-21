@@ -38,5 +38,11 @@ $status = array(
 if( isset( $api_config['api_redirect_url'] ) ){
     $status[ 'redirect' ] = $api_config['api_redirect_url'];
 }
+# Garmin login flow for new logins (see designs/oauth2-migration.md). Sent only when both are
+# set; otherwise the app uses OAuth 1.0. The client id isn't secret: it's in the authorization URL.
+if( ( $api_config['garmin_login'] ?? '' ) === 'oauth2' && ! empty( $api_config['oauth2ClientId'] ) ){
+    $status[ 'garmin_login' ] = 'oauth2';
+    $status[ 'garmin_client_id' ] = $api_config['oauth2ClientId'];
+}
 print( json_encode( $status ) );
 ?>

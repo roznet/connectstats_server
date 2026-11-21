@@ -40,6 +40,42 @@ Registers a user with their Garmin OAuth tokens. Called after the app completes 
 
 ---
 
+### User Registration, OAuth 2.0
+
+**Endpoint:** `POST /api/connectstats/user_register_oauth2`
+
+Login with Garmin OAuth 2.0 (PKCE). The app gets the authorization code from Garmin and sends it here; the server exchanges it with the client secret and keeps Garmin's tokens. Returns 503 until `oauth2ClientId` and `oauth2ClientSecret` are configured.
+
+**Form fields:** `code`, `code_verifier` (43–128 chars), `redirect_uri`
+
+**Response:**
+```json
+{
+  "token_id": 456,
+  "cs_user_id": 789,
+  "userId": "garmin_user_id_string",
+  "server_token": "random, shown only once",
+  "permissions": ["ACTIVITY_EXPORT", "HEALTH_EXPORT"],
+  "activity_export": true
+}
+```
+
+Errors: 400 bad fields, 401 Garmin refused the code, 405 not POST, 502 no Garmin user id.
+
+Afterwards the app authenticates with `Authorization: Bearer <server_token>` and `token_id`, on every endpoint that takes `token_id`.
+
+---
+
+### Disconnect
+
+**Endpoint:** `GET|POST /api/connectstats/user_disconnect?token_id=N` (authenticated, OAuth 1.0 or Bearer)
+
+Logout: removes the user's consent at Garmin (DELETE user/registration: Bearer for OAuth 2.0 users, which disconnects the whole Garmin user, OAuth 1.0 otherwise) and clears the credentials, so `token_id` stops working. Local credentials are cleared even if Garmin's call fails.
+
+**Response:** `{"status": 1, "garmin": "oauth2"|"oauth1"|"none", "garmin_http": 204}`
+
+---
+
 ### Validate User
 
 **Endpoint:** `GET /api/connectstats/validateuser`
@@ -285,10 +321,13 @@ Health check for the API.
 ```json
 {
   "status": 1,
-  "version": "1.0",
-  "database": "connected"
+  "redirect": "https://...",
+  "garmin_login": "oauth2",
+  "garmin_client_id": "..."
 }
 ```
+
+`redirect` only when `api_redirect_url` is set. `garmin_login` and `garmin_client_id` only when `garmin_login` is `oauth2` and `oauth2ClientId` is set; without them the app uses OAuth 1.0 for new logins.
 
 ### App Status
 

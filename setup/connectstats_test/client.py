@@ -135,7 +135,20 @@ class ConnectStatsClient:
         resp = self._pool.request("GET", url, headers=headers)
         return Response(status=resp.status, body=resp.data, json_data=_try_parse_json(resp.data))
 
-    def post_json(self, path: str, data: dict) -> Response:
+    def request(self, method: str, path: str, headers: Optional[dict] = None, fields: Optional[dict] = None) -> Response:
+        """Unsigned request with explicit headers (Bearer auth) and optional form fields."""
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        if fields is not None:
+            resp = self._pool.request(method, url, fields=fields, headers=headers or {}, encode_multipart=False)
+        else:
+            resp = self._pool.request(method, url, headers=headers or {})
+        return Response(status=resp.status, body=resp.data, json_data=_try_parse_json(resp.data))
+
+    def get_bearer(self, path: str, server_token: str) -> Response:
+        """GET with `Authorization: Bearer <server_token>` (OAuth 2.0 logins)."""
+        return self.request("GET", path, headers={"Authorization": f"Bearer {server_token}"})
+
+    def post_json(self, path: str, data: dict, headers: Optional[dict] = None) -> Response:
         """POST JSON data (no auth — used for Garmin webhook simulation)."""
         url = f"{self.base_url}/{path.lstrip('/')}"
         encoded = json.dumps(data).encode()
@@ -144,7 +157,7 @@ class ConnectStatsClient:
             "POST",
             url,
             body=encoded,
-            headers={"Content-Type": "application/json;charset=utf-8"},
+            headers={"Content-Type": "application/json;charset=utf-8", **(headers or {})},
         )
         return Response(status=resp.status, body=resp.data, json_data=_try_parse_json(resp.data))
 
