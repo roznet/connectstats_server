@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration: config deployed and the first real call worked; `--limit=50` and the full run are next. Server side of Work 3, 4 and 5 written and passing the local suite against the extended mock; not deployed yet. About 3 weeks behind the 2 Nov timeline, see the revised one.
+**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration: config deployed and the first real call worked; `--limit=50` and the full run are next. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
 
 ## Decisions
 
@@ -83,7 +83,7 @@ Revised 2026-11-21 (the 2 Nov proposal slipped by about 3 weeks). Hard limit: OA
 | Done 7 Nov | Webhook changes deployed |
 | Done 21 Nov | **Request the conversion**, both keys, `garmin_dev` first if they can. Unanswered questions repeated |
 | 22–24 Nov | Deregistration: config, `userId` index, dry run, `--limit=1`, `--limit=50`, full run (~3.6 h) |
-| 28 Nov | Rest of the server deployed, inactive: OAuth 2.0 token storage and refresh, Bearer calls, exchange script, login endpoint, status endpoint, disconnect endpoint |
+| Done 21 Nov | Rest of the server deployed, inactive: OAuth 2.0 token storage and refresh, Bearer calls, exchange script, login endpoint, status endpoint, disconnect endpoint |
 | 30 Nov | App submitted: supports both flows, setting off |
 | Conversion + 1 day | Exchange own account; test login with Garmin's OAuth 2.0 tool; check downloads |
 | Conversion + 3 days | Small batch, then the full exchange (~25 min). **Must be done by ~15 Dec**, so a failure leaves time to fix forward |
