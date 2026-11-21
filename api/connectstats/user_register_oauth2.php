@@ -54,9 +54,9 @@ $code = $_POST['code'] ?? '';
 $code_verifier = $_POST['code_verifier'] ?? '';
 $redirect_uri = $_POST['redirect_uri'] ?? '';
 
-// PKCE verifiers use [A-Za-z0-9-._~] (RFC 7636); codes are opaque but URL safe
-$safe = '/^[-A-Za-z0-9._~]{1,512}$/';
-if( ! preg_match( $safe, $code ) || ! preg_match( '/^[-A-Za-z0-9._~]{43,128}$/', $code_verifier )
+// PKCE verifiers use [A-Za-z0-9-._~] (RFC 7636). Garmin's code format isn't documented: accept any
+// printable ASCII, it's only passed on to Garmin's token endpoint (form-encoded), never to SQL
+if( ! preg_match( '/^[\x21-\x7E]{1,2048}$/', $code ) || ! preg_match( '/^[-A-Za-z0-9._~]{43,128}$/', $code_verifier )
     || $redirect_uri === '' || strlen( $redirect_uri ) > 512 || ! parse_url( $redirect_uri, PHP_URL_SCHEME ) ){
     http_response_code( 400 );
     print( json_encode( array( 'error' => 'code, code_verifier and redirect_uri are required' ) ) );
