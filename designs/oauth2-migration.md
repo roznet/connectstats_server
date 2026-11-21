@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration: config deployed and the first real call worked; `--limit=50` and the full run are next. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
+**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration: `--limit=50` done 21 Nov; the full run is next. Scheduled refresh job in the crontab. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
 
 ## Decisions
 
@@ -102,7 +102,8 @@ Selection measured on prod 2026-11-02: **21,713 tokens to deregister** (21,680 u
 - [x] Script: dry run by default, skips anything recent, resumable, stops after repeated failures
 - [x] Deploy, add `url_user_registration` to the config (2026-11-21)
 - [x] Dry run (21,760 to deregister, 4,910 kept) and `--execute --limit=1` (2026-11-21): 204 from `healthapi.garmin.com/wellness-api`, Garmin's deregistration webhook arrived 3 s later and was handled (200, no error row)
-- [ ] `--limit=50`, then the full run
+- [x] `--limit=50` (2026-11-21): 49 × 204, 1 × 401 "OAuthToken is invalid" (token already dead at Garmin, left as is). Garmin batched the deregistration webhooks (~5 users per request), all answered 200, no error rows
+- [ ] Full run
 - [ ] Decide what to do with tokens that keep failing
 
 Deregistered users keep their rows. Coming back, they get a 401, and the app asks for a login.
@@ -139,7 +140,7 @@ The code assumes `userAccessToken` is always present. Without it:
 - [x] Schema version bump in `ensure_schema()`. New table **`garmin_oauth2`, keyed by Garmin `userId`** (changed 2026-11-21 from columns on `tokens`): `access_token`, `refresh_token`, `access_expires_at`, `refresh_expires_at`, `permissions`, timestamps. The OAuth 2.0 grant is per Garmin user, while `tokens` has one row per app login: keying by `userId` means one exchange covers all of a user's rows, a new OAuth 2.0 login replaces the grant in one place, and the refresh lock is per user. `tokens` only gains `server_token_hash` (Work 4) — v9 written; applies itself on prod on the first request after deploy
 - [x] `Auth::get_url_data()` and callers: use Bearer if the user has an OAuth 2.0 token, otherwise OAuth 1.0. Bearer calls to Garmin's user endpoints use `partner-gateway` — `Auth::get_url_data_for_user()`; the FIT download is the only per-user Garmin call besides OAuth 1.0 `register_user()`
 - [x] Refresh the access token 600 seconds before it expires. Take a lock (`GET_LOCK` per `userId`) and re-read after getting it: queue workers run concurrently, and every refresh replaces the refresh token, so a lost update loses the user's access. Store the response before doing anything else — `GarminOAuth2::access_token()` / `refresh_user()`; a 401 from Garmin also triggers one refresh and a retry
-- [x] **Scheduled refresh job**: on-demand refresh isn't enough. Downloads are skipped for users idle over 45 days, so their tokens would never refresh and the refresh token would expire after 3 months. Refresh anything within about 30 days of `garmin_refresh_expires_at` — `api/connectstats/refresh_oauth2_tokens.php`. **Not yet in the crontab**: add it (daily) with a healthcheck before the exchange
+- [x] **Scheduled refresh job** (in the crontab since 21 Nov, daily 02:15 UTC, healthcheck `connectstats-refresh-oauth2`): on-demand refresh isn't enough. Downloads are skipped for users idle over 45 days, so their tokens would never refresh and the refresh token would expire after 3 months. Refresh anything within about 30 days of `garmin_refresh_expires_at` — `api/connectstats/refresh_oauth2_tokens.php`.
 - [x] Refresh failing for good: clear the row's app credentials, so the app gets a 401 and asks for a login, as with deregistration. Log it — 400/401 from the token endpoint removes the user's credentials and logs to `error_garmin_oauth2`; other failures keep the token and count `refresh_failures`
 
 ### 4. Login for new users (server + app)
