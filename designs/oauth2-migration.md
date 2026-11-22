@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-21):** no reply from Garmin to the 3 Nov questions, so we go with the best guesses below. Conversion requested 21 Nov (both keys, dev first). Webhook changes are deployed (app image of 7 Nov). Deregistration done 21 Nov (19.7k tokens; 4,922 live tokens for 4,771 Garmin users left for the exchange). Scheduled refresh job in the crontab. Server side of Work 3, 4 and 5 deployed 21 Nov, inactive (schema v9 applied, login endpoint 503 without the client secret, downloads unchanged). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. About 3 weeks behind the 2 Nov timeline, see the revised one.
+**Status (2026-11-22):** **Garmin converted the app on 22 Nov** and answered the 3 Nov questions (see "Garmin's answers"): the OAuth 2.0 client secret is in the Developer Portal. Server side deployed 21 Nov, inactive until the client id and secret are in the config. Deregistration done 21 Nov (19.7k tokens; 4,924 live tokens left for the exchange). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. Next: client id and secret into the config, redirect URI in the portal, exchange on own account.
 
 ## Decisions
 
@@ -187,9 +187,9 @@ Versions without this only have OAuth 1.0 login. They keep working for anyone si
 ### 5. Token exchange (server)
 
 - [x] New script, same shape as the deregistration script: dry run by default, limit, rate, resumable, stops after repeated failures. Logs IDs only — `api/connectstats/exchange_oauth2_tokens.php`, with `--user-id` / `--cs-user-id` for the own-account run
-- [x] Rate: at most 200/minute. About 25 minutes for ~5k tokens Default 150
+- [x] Rate: at most 200/minute, default 150: about 33 minutes for ~4.9k tokens
 - [x] Store the response immediately, and skip rows that already have an OAuth 2.0 token on a re-run
-- [x] **One exchange per Garmin user**, on the newest live token (~4.9k users, ~5k tokens). Other rows keep their secret for app auth and share the `garmin_oauth2` row through `userId`
+- [x] **Every live token exchanged** (changed 22 Nov after Garmin's answer, was one per Garmin user): 4,918 tokens for 4,771 users. Credentials stay per `userId`; tokens go oldest first so the newest token's grant is kept. `tokens.oauth2_exchanged_ts` marks done tokens
 - [x] Before running: fill in missing `userId` values with `url_user_id` (the script does it in `--execute`), and tokens without a `cs_user_id` are skipped and listed. On 2026-11-02, 7 tokens had no `userId`, and 7 live tokens had no `cs_user_id`
 - [ ] Run on one's own account first, check downloads for a few days, then a small batch, then all
 
@@ -217,21 +217,20 @@ Watch during the transition: 401 rate, `error_*` tables, refresh failures, activ
 - **Exchange, after 30 days:** no rollback, only fixing forward
 - **Deregistration:** no rollback; the user logs in again
 
-## Open questions for Garmin: best guesses
+## Garmin's answers (22 Nov)
 
-Asked 2026-11-03, no answer by 2026-11-21. We act on these guesses; the code is written so a wrong guess shows up in logs and is cheap to fix.
+Asked 3 Nov, answered 22 Nov with the conversion. We had worked from best guesses in the meantime.
 
-| Question | Best guess | How the code copes if wrong |
-|---|---|---|
-| How long does a conversion take? | Days to 2 weeks | Request it now; everything else is ready and inactive before it lands |
-| Does converting affect the `garmin_dev` key; can it go first? | Separate key, converted separately | Ask for both in one email, dev first if they can |
-| Do webhooks change at conversion, or 30 days after each exchange? | 30 days after each exchange, per the guide | Both formats are already handled |
-| New-format activity/file webhooks: `userId` in body or header? | **Body**, as today (only `userAccessToken` goes away). Garmin already sends a `Garmin-Client-Id` header on webhooks (seen 21 Nov), which matches the spec's "client ID in the header" | Fall back to a request header when the body has no `userId`, and record the headers of any such webhook in `error_*` so we can see the real format |
-| Deregistering ~21.7k users OK, at what rate? 204? Dead token response? | OK at 100/min. 2xx is success. A dead token returns 401 | Script stops after 10 failures in a row; decide on persistent failures from the logs |
-| Deregistration URL for OAuth 1.0 calls | **Confirmed 21 Nov**: `healthapi.garmin.com/wellness-api` returns 204 | — |
-| Several OAuth 1.0 tokens for one Garmin user | One exchange per Garmin user is enough; the OAuth 2.0 grant is per user | Garmin credentials are stored per `userId` (see Work 3), so all of a user's rows share them. If Garmin turns out to need every token exchanged, the script can run again per token |
-| Exchange after 31 Dec? | No | Exchange by ~15 Dec; after that, users re-login |
-| Does a logout that only clears local data need the DELETE? | **Yes**: a user who taps logout reasonably believes they're disconnecting | Add a disconnect endpoint, called by the app on logout (Work 4) |
+| Question | Our guess | Garmin | Result |
+|---|---|---|---|
+| New-format webhooks: `userId` in body or header? | Body | "User ID is part of PUSH/PING notification similar to user access token" | As built. The header fallback stays as a safety net |
+| Several OAuth 1.0 tokens for one Garmin user | One exchange per user | "Each token = 1 account. You need to convert each token" | **Changed**: the exchange script converts every live token (`tokens.oauth2_exchanged_ts`, schema v10); credentials stay per `userId`, the newest token's grant kept |
+| Exchange after 31 Dec? | No | "Possibly for a short period of time, OAuth1 sunset will be complete in stages" | Don't rely on it: exchange by mid-December |
+| Logout that only clears local data: DELETE? | Yes | "If user is no longer valid on your side = call DELETE registration" | As built (`user_disconnect`, app calls it on logout) |
+| Conversion time, `garmin_dev` first | Days to 2 weeks | Converted 22 Nov ("app(s) has/have been converted") | Check the portal for both keys |
+| Deregistration URL, rate, responses | `wellness-api`, 100/min | (not answered; confirmed in practice) | 204 OK, 401 "OAuthToken is invalid" for dead tokens, no 429 at 100/min |
+
+Garmin also restated: retrieve the userId for all existing users before migration (done: every live token with a `cs_user_id` has one); once the migration is complete, OAuth 2.0 only for new connections and for all API calls.
 
 ## References
 

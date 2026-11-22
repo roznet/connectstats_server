@@ -477,7 +477,7 @@ class GarminProcess {
     /**
      */
     function ensure_schema() {
-        $schema_version = 9;
+        $schema_version = 10;
         $schema = array(
             "usage" => array(
                 'usage_id' => 'BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY',
@@ -509,6 +509,8 @@ class GarminProcess {
                 'created_ts' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP',
                 // OAuth 2.0 logins: SHA-256 of the server_token the app sends as Bearer (v9)
                 'server_token_hash' => 'CHAR(64)',
+                // When this OAuth 1.0 token was exchanged for OAuth 2.0 (v10, exchange_oauth2_tokens.php)
+                'oauth2_exchanged_ts' => 'DATETIME',
             ),
             // Garmin OAuth 2.0 credentials, one row per Garmin user (v9, see lib/GarminOAuth2.php)
             "garmin_oauth2" => array(

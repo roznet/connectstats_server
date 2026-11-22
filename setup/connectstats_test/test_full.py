@@ -390,7 +390,10 @@ def _test_oauth2(client: ConnectStatsClient, config: Config, suite: TestSuite, a
     suite.check(resp.ok and resp.json_data and resp.json_data.get("token_id") is not None and "server_token_hash" not in resp.json_data,
                 "bearer validateuser hides hash", f"status={resp.status} body={resp.body[:200]!r}")
 
-    # Exchange: own account first, as on prod
+    # Exchange: own account first, as on prod. A second live token of the same Garmin user:
+    # Garmin wants every token exchanged
+    _db_execute(config, "INSERT INTO tokens (cs_user_id, userId, userAccessToken, userAccessTokenSecret) "
+                        "SELECT cs_user_id, userId, 'testtoken-b', 'secret-testtoken-b' FROM tokens WHERE userAccessToken = 'testtoken'")
     suite.start_test("exchange dry run changes nothing")
     _run_php("exchange_oauth2_tokens.php", ["--user-id=testuser"], cs_dir, verbose=suite.verbose)
     suite.check(not _db_query(config, "SELECT userId FROM garmin_oauth2 WHERE userId = 'testuser'"),
@@ -402,6 +405,15 @@ def _test_oauth2(client: ConnectStatsClient, config: Config, suite: TestSuite, a
     suite.start_test("exchange is one user only")
     others = _db_query(config, "SELECT COUNT(*) FROM garmin_oauth2 WHERE source = 'exchange'")[0][0]
     suite.check(others == 1, "exchange is one user only", f"exchanged={others}")
+    suite.start_test("exchange covers every token of the user")
+    marked = _db_query(config, "SELECT userAccessToken FROM tokens WHERE userId = 'testuser' AND oauth2_exchanged_ts IS NOT NULL ORDER BY token_id")
+    suite.check([r[0] for r in marked] == ["testtoken", "testtoken-b"], "exchange covers every token of the user", f"got {marked}")
+    suite.start_test("exchange run again does nothing")
+    before = _db_query(config, "SELECT refresh_token FROM garmin_oauth2 WHERE userId = 'testuser'")
+    _run_php("exchange_oauth2_tokens.php", ["--execute", "--user-id=testuser"], cs_dir, verbose=suite.verbose)
+    after = _db_query(config, "SELECT refresh_token FROM garmin_oauth2 WHERE userId = 'testuser'")
+    suite.check(before == after, "exchange run again does nothing")
+    _db_execute(config, "DELETE FROM tokens WHERE userAccessToken = 'testtoken-b'")
     suite.start_test("oauth1 app auth works after exchange")
     resp = client.get("api/connectstats/search?token_id=1&start=0&limit=5", token_id=1)
     suite.check(resp.ok, "oauth1 app auth works after exchange", f"status={resp.status}")

@@ -128,7 +128,8 @@ if ($op === 'exchange') {
     if (!$token || !hash_equals(base64_encode(hash_hmac('sha1', $base, $key, true)), $signature) || strpos($token, 'dead') === 0) {
         reply(401);
     }
-    $users = ['testtoken' => 'testuser'];
+    // testtoken-b: a second token of the same Garmin user
+    $users = ['testtoken' => 'testuser', 'testtoken-b' => 'testuser'];
     reply(200, issue($users[$token] ?? 'user-' . $token));
 }
 

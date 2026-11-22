@@ -44,7 +44,8 @@ CREATE TABLE tokens (
     userAccessTokenSecret VARCHAR(128),
     ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    server_token_hash CHAR(64)      -- v9: SHA-256 of the Bearer server_token (OAuth 2.0 logins)
+    server_token_hash CHAR(64),     -- v9: SHA-256 of the Bearer server_token (OAuth 2.0 logins)
+    oauth2_exchanged_ts DATETIME    -- v10: when this OAuth 1.0 token was exchanged for OAuth 2.0
 );
 ```
 

@@ -92,7 +92,7 @@ No external test framework — lightweight custom runner matching project simpli
 Read-only checks against the database, no HTTP requests:
 - `dev` marker table exists (safety check for `reset_schema`)
 - All 16 `ensure_schema` tables exist
-- Schema version >= 9
+- Schema version >= 10
 - Key columns on critical tables (`activities.parent_activity_id`, `tokens.userAccessTokenSecret`, `fitfiles.callbackURL`, etc.)
 - AUTO_INCREMENT on primary keys that need it (9 tables)
 - Queue DB: `tasks`, `queues`, `schema` tables exist, version >= 2
@@ -107,7 +107,7 @@ Requires at least one user with token_id 1 and 2 in the DB:
 - `validateuser` → JSON with `token_id`
 - File with invalid `activity_id` → graceful error (not 500)
 
-### `full` — End-to-End Integration (108 tests)
+### `full` — End-to-End Integration (114 tests)
 
 Destructive — resets the database, then:
 1. **Reset**: `GET /api/connectstats/reset` with system auth (requires `serviceKey`)

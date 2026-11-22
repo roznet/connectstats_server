@@ -34,19 +34,21 @@
  * Options:
  *   --execute           Call Garmin and store the OAuth 2.0 tokens. After the exchange the
  *                       OAuth 1.0 token stays valid at Garmin for 30 days only
- *   --limit=N           Max Garmin users to exchange in this run (default: all)
+ *   --limit=N           Max tokens to exchange in this run (default: all)
  *   --rate=N            Max exchange calls per minute (default: 150, Garmin allows 200)
  *   --max-failures=N    Stop after N failures in a row (default: 10)
  *   --user-id=ID        Only this Garmin userId (own account first)
  *   --cs-user-id=N      Only this cs_user_id
  *
- * One exchange per Garmin user: the grant is per user, and the credentials are stored in
- * `garmin_oauth2` keyed by userId, so all of that user's `tokens` rows use them. The token
- * exchanged is the user's newest live one (has a secret and a cs_user_id). Users who already
- * have OAuth 2.0 credentials are skipped, so running again resumes where it stopped.
+ * Every live token is exchanged: Garmin (2026-11-22) says "each token = 1 account, you need
+ * to convert each token". Credentials are stored in `garmin_oauth2` per Garmin userId, shared
+ * by all that user's `tokens` rows: tokens go oldest first, so for a userId with several
+ * tokens the grant kept is the newest token's. Each exchanged token gets
+ * `tokens.oauth2_exchanged_ts`, so running again resumes where it stopped.
  *
- * Live tokens without a userId get it first from url_user_id (OAuth 1.0), in --execute mode.
- * Live tokens without a cs_user_id are skipped and listed: they can't be used by the app.
+ * Live = has a secret, a cs_user_id and isn't exchanged yet. Live tokens without a userId get
+ * it first from url_user_id (OAuth 1.0), in --execute mode. Tokens without a cs_user_id are
+ * skipped and listed: the app can't use them.
  *
  * Logs token_id, cs_user_id and userId only, never tokens.
  */
@@ -89,47 +91,54 @@ if ($only_user_id !== null) {
 if ($only_cs_user_id > 0) {
     $where .= sprintf(" AND t.cs_user_id = %d", $only_cs_user_id);
 }
+// Oldest first, so the newest token of a userId is exchanged last and its grant is the one kept
 $live = $process->sql->query_as_array("
-    SELECT t.token_id, t.cs_user_id, t.userId, t.userAccessToken, t.userAccessTokenSecret, g.userId AS has_oauth2
+    SELECT t.token_id, t.cs_user_id, t.userId, t.userAccessToken, t.userAccessTokenSecret, t.oauth2_exchanged_ts
     FROM tokens t
-    LEFT JOIN garmin_oauth2 g ON g.userId = t.userId
     WHERE $where
-    ORDER BY t.token_id DESC
+    ORDER BY t.token_id
 ");
 
 $no_cs_user = [];
 $no_user_id = [];
-$already = [];
+$exchanged = 0;
 $candidates = [];
+$seen_tokens = [];
 foreach ($live as $t) {
-    if (!$t['cs_user_id']) {
+    if ($t['oauth2_exchanged_ts']) {
+        $exchanged++;
+    } elseif (!$t['cs_user_id']) {
         $no_cs_user[] = $t['token_id'];
+    } elseif (isset($seen_tokens[$t['userAccessToken']])) {
+        // Same token value on several rows: one call, all rows marked
+        continue;
     } elseif (!$t['userId']) {
         $no_user_id[] = $t;
-    } elseif ($t['has_oauth2']) {
-        $already[$t['userId']] = true;
-    } elseif (!isset($candidates[$t['userId']])) {
-        // Newest first: the first row seen for a userId is the one to exchange
-        $candidates[$t['userId']] = $t;
+        $seen_tokens[$t['userAccessToken']] = true;
+    } else {
+        $candidates[] = $t;
+        $seen_tokens[$t['userAccessToken']] = true;
     }
 }
+$users = count(array_unique(array_column($candidates, 'userId')));
 
 log_msg("=== Exchange OAuth 1.0 tokens for OAuth 2.0 ===");
 log_msg("Garmin endpoint: POST %s", $process->oauth2->url('url_oauth2_exchange'));
 log_msg("Live tokens: %d", count($live));
-log_msg("Garmin users already exchanged: %d", count($already));
+log_msg("Already exchanged: %d", $exchanged);
 log_msg("Skipped, no cs_user_id: %d%s", count($no_cs_user), $no_cs_user ? ' (token_id ' . implode(', ', array_slice($no_cs_user, 0, 20)) . ')' : '');
 log_msg("Missing userId, looked up first: %d", count($no_user_id));
-log_msg("Garmin users to exchange: %d", count($candidates));
+log_msg("Tokens to exchange: %d, for %d Garmin users", count($candidates), $users);
 
 if (!$execute) {
-    $n = $limit > 0 ? min($limit, count($candidates) + count($no_user_id)) : count($candidates) + count($no_user_id);
+    $n = count($candidates) + count($no_user_id);
+    $n = $limit > 0 ? min($limit, $n) : $n;
     log_msg("Estimated time at %d/min: %d min", $rate, ceil($n / $rate));
     log_msg("Nothing was changed. Use --execute to exchange.");
     exit(0);
 }
 
-// Fill in missing userIds, so those tokens join their user (or become new candidates)
+// Fill in missing userIds first
 foreach ($no_user_id as $t) {
     $data = $process->get_url_data($process->api_config['url_user_id'], $t['userAccessToken'], $t['userAccessTokenSecret']);
     $json = $data ? json_decode($data, true) : null;
@@ -140,16 +149,11 @@ foreach ($no_user_id as $t) {
     }
     $process->sql->execute_query(sprintf("UPDATE tokens SET userId = '%s' WHERE token_id = %d", $process->sql->escape($userId), $t['token_id']));
     log_msg("userId filled for token_id=%d", $t['token_id']);
-    if (!isset($already[$userId]) && !isset($candidates[$userId]) && !$process->oauth2->has_credentials($userId)) {
-        $t['userId'] = $userId;
-        $candidates[$userId] = $t;
-    }
+    $t['userId'] = $userId;
+    $candidates[] = $t;
 }
 
-$to_process = array_values($candidates);
-if ($limit > 0) {
-    $to_process = array_slice($to_process, 0, $limit);
-}
+$to_process = $limit > 0 ? array_slice($candidates, 0, $limit) : $candidates;
 log_msg("In this run: %d, about %d min at %d/min", count($to_process), ceil(count($to_process) / $rate), $rate);
 
 $done = 0;
@@ -163,13 +167,13 @@ foreach ($to_process as $i => $t) {
     $token_id = intval($t['token_id']);
     $userId = $t['userId'];
 
-    // The run can take a while: the user may have been exchanged or logged in since
-    if ($process->oauth2->has_credentials($userId)) {
-        log_msg("SKIP token_id=%d userId=%s: already has OAuth 2.0 credentials", $token_id, $userId);
+    // The run can take a while: the token may have been exchanged or deregistered since
+    $now = $process->sql->query_first_row(sprintf('SELECT userAccessTokenSecret, oauth2_exchanged_ts FROM tokens WHERE token_id = %d', $token_id));
+    if (!empty($now['oauth2_exchanged_ts'])) {
+        log_msg("SKIP token_id=%d userId=%s: already exchanged", $token_id, $userId);
         $skipped_now++;
         continue;
     }
-    $now = $process->sql->query_first_row(sprintf('SELECT userAccessTokenSecret FROM tokens WHERE token_id = %d', $token_id));
     if (empty($now['userAccessTokenSecret'])) {
         log_msg("SKIP token_id=%d userId=%s: deregistered since", $token_id, $userId);
         $skipped_now++;
@@ -180,9 +184,12 @@ foreach ($to_process as $i => $t) {
     list($status, $json, $body) = $process->oauth2->exchange_oauth1_token($process->auth, $t['userAccessToken'], $t['userAccessTokenSecret']);
 
     if ($status >= 200 && $status < 300 && $json && !empty($json['access_token'])) {
-        if (!$process->oauth2->store($userId, $json, 'exchange')) {
+        $escaped = $process->sql->escape($t['userAccessToken']);
+        if (!$process->oauth2->store($userId, $json, 'exchange')
+            || !$process->sql->execute_query("UPDATE tokens SET oauth2_exchanged_ts = NOW() WHERE userAccessToken = '$escaped'")) {
             // Garmin has issued the grant: stop rather than lose more of them
-            log_msg("ERROR: token_id=%d userId=%s exchanged but not stored (%s), stopping", $token_id, $userId, $process->oauth2->last_error);
+            log_msg("ERROR: token_id=%d userId=%s exchanged but not stored (%s %s), stopping", $token_id, $userId,
+                    $process->oauth2->last_error, $process->sql->lasterror ?? '');
             exit(1);
         }
         log_msg("OK token_id=%d cs_user_id=%d userId=%s http=%d", $token_id, $t['cs_user_id'], $userId, $status);
