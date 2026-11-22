@@ -2,7 +2,7 @@
 
 > Garmin retires OAuth 1.0 on **31 Dec 2026**. This is the tracking doc: update the checklists as work lands. Rewritten 2026-11-02; replaces the February plan, which moved every app install to Bearer tokens.
 
-**Status (2026-11-22):** **Garmin converted the app on 22 Nov** and answered the 3 Nov questions (see "Garmin's answers"): the OAuth 2.0 client secret is in the Developer Portal. Server side deployed 21 Nov, inactive until the client id and secret are in the config. Deregistration done 21 Nov (19.7k tokens; 4,924 live tokens left for the exchange). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. Next: client id and secret into the config, redirect URI in the portal, exchange on own account.
+**Status (2026-11-22):** **Garmin converted the app on 22 Nov** and answered the 3 Nov questions (see "Garmin's answers"): the OAuth 2.0 client secret is in the Developer Portal. Server side deployed 21 Nov, inactive until the client id and secret are in the config. Deregistration done 21 Nov (19.7k tokens; 4,924 live tokens left for the exchange). App: OAuth 2.0 branch merged into master 21 Nov (client id key fixed, disconnect on logout), not released. **Token exchange done 22 Nov: 4,762 Garmin users on OAuth 2.0, downloads use Bearer.** Next: app 10.0 release, OAuth 2.0 login test, `garmin_login` on, exchange re-runs, tell Garmin the migration is complete before 31 Dec.
 
 ## Decisions
 
@@ -195,7 +195,8 @@ Versions without this only have OAuth 1.0 login. They keep working for anyone si
 - [x] Own account: Bearer FIT download confirmed 22 Nov (strength workout, 16:13 UTC), opened in the app
 - [x] Batch of 100 (22 Nov 16:20 UTC): 99 × 200, 1 dead (401 "OAuthToken is invalid": a 2019 token of a user with a newer working token), no 429, 40 s
 - [x] Dead tokens: logged as DEAD and left unchanged (the secret may still sign an app install's requests), not counted as failures; `--max-dead` (100) stops a run of only "invalid" answers
-- [ ] Full run, then re-runs after `garmin_login` is on and just before 31 Dec, for OAuth 1.0 logins made in the meantime. Was: check downloads on own account for a few days, then a small batch, then all. Originally: run on one's own account first, check downloads for a few days, then a small batch, then all
+- [x] Full run (22 Nov 19:08–19:41 UTC): 4,663 exchanged, 101 dead, 5 failed with 401 "Invalid signature" (the same 5 stale tokens as in the deregistration), 0 × 429. **4,762 Garmin users now have OAuth 2.0 credentials** (4,805 token rows marked). 113 live tokens not exchanged, 105 of them belong to users whose other token was. First 25 FIT files of active users after the run all downloaded with Bearer, no error rows
+- [ ] Re-runs after `garmin_login` is on and just before 31 Dec, for OAuth 1.0 logins made in the meantime Originally: run on one's own account first, check downloads for a few days, then a small batch, then all
 
 ## Cleanup (January 2027)
 
