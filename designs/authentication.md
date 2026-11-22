@@ -198,7 +198,7 @@ See [oauth2-migration](oauth2-migration.md) for the plan and status. In code:
 - **App → server, new logins:** `POST /api/connectstats/user_register_oauth2` returns a `token_id` and a random `server_token`; only its SHA-256 is stored. Requests then send `Authorization: Bearer <server_token>` with `token_id`. `Auth::authenticate_header()` accepts either form, so every user endpoint supports both.
 - **App → server, existing logins:** unchanged, OAuth 1.0 signatures with the stored secret.
 - **Server → Garmin:** `Auth::get_url_data_for_user()` uses Bearer when the Garmin user has a `garmin_oauth2` row, otherwise OAuth 1.0. `GarminOAuth2` refreshes access tokens under a per-user `GET_LOCK` (refresh tokens are single use) and removes the user's credentials when Garmin rejects a refresh for good.
-- **Logout:** `user_disconnect` calls Garmin's DELETE user/registration and clears the credentials.
+- **Logout:** clears the phone only. `user_disconnect` (Garmin DELETE + clear credentials) exists but the app doesn't call it; Garmin access is removed only for dormant users (`deregister_dormant_users.php`) or on Garmin's deregistration webhook.
 
 ## Security Considerations
 

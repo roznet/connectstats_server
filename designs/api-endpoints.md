@@ -70,7 +70,7 @@ Afterwards the app authenticates with `Authorization: Bearer <server_token>` and
 
 **Endpoint:** `GET|POST /api/connectstats/user_disconnect?token_id=N` (authenticated, OAuth 1.0 or Bearer)
 
-Logout: removes the user's consent at Garmin (DELETE user/registration: Bearer for OAuth 2.0 users, which disconnects the whole Garmin user, OAuth 1.0 otherwise) and clears the credentials, so `token_id` stops working. Local credentials are cleared even if Garmin's call fails.
+**Not called by the app** (logout clears the phone only; decided 22 Nov). Kept for a possible explicit "disconnect from Garmin" action. Removes the user's consent at Garmin (DELETE user/registration: Bearer for OAuth 2.0 users, which disconnects the whole Garmin user, OAuth 1.0 otherwise) and clears the credentials, so `token_id` stops working. Local credentials are cleared even if Garmin's call fails.
 
 **Response:** `{"status": 1, "garmin": "oauth2"|"oauth1"|"none", "garmin_http": 204}`
 

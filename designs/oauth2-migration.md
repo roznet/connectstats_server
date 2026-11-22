@@ -177,10 +177,10 @@ Signed-in users need no mode: a stored `server_token` means Bearer, otherwise OA
 - [ ] `GCConnectStatsRequestAPICheck.swift`: read `garmin_login` and `garmin_client_id` and save them, like `redirect`. The app calls this just before login on each sync
 - [ ] Fresh install: make sure login waits for the status check. If there's no answer, use the last saved value, or OAuth 1.0 if none
 
-**Logout:** "Tap to logout" in the app only clears local data, while Garmin requires the DELETE call wherever a user would reasonably believe they're removing consent. Best guess: it applies.
+**Logout (decided 22 Nov): no DELETE.** Logging out of the app clears the phone only, as before. Garmin asks for DELETE when a user "is no longer valid on your side", and a user who logs out may come back. Access at Garmin is removed for users dormant over a year (`deregister_dormant_users.php`) and when Garmin sends a deregistration.
 
-- [x] Server: authenticated endpoint `api/connectstats/user_disconnect.php` that calls Garmin's DELETE (Bearer if the user has OAuth 2.0 credentials, else OAuth 1.0) and clears the row's credentials
-- [ ] App: call it on logout before clearing local data; a failure must not block the logout
+- [x] Server: `api/connectstats/user_disconnect.php` exists (DELETE at Garmin, Bearer or OAuth 1.0, then clears the credentials), **not called by the app**. Kept for a possible explicit "disconnect from Garmin" action
+- [x] App: logout does not call it (the call added 21 Nov was reverted 22 Nov)
 
 Versions without this only have OAuth 1.0 login. They keep working for anyone signed in, but after 31 Dec anyone signed out, including deregistered users, has to update first.
 
@@ -226,7 +226,7 @@ Asked 3 Nov, answered 22 Nov with the conversion. We had worked from best guesse
 | New-format webhooks: `userId` in body or header? | Body | "User ID is part of PUSH/PING notification similar to user access token" | As built. The header fallback stays as a safety net |
 | Several OAuth 1.0 tokens for one Garmin user | One exchange per user | "Each token = 1 account. You need to convert each token" | **Changed**: the exchange script converts every live token (`tokens.oauth2_exchanged_ts`, schema v10); credentials stay per `userId`, the newest token's grant kept |
 | Exchange after 31 Dec? | No | "Possibly for a short period of time, OAuth1 sunset will be complete in stages" | Don't rely on it: exchange by mid-December |
-| Logout that only clears local data: DELETE? | Yes | "If user is no longer valid on your side = call DELETE registration" | As built (`user_disconnect`, app calls it on logout) |
+| Logout that only clears local data: DELETE? | Yes | "If user is no longer valid on your side = call DELETE registration" | **No DELETE on logout**: a user who logs out is still valid. DELETE only for dormant users (deregistration script); `user_disconnect` stays unused |
 | Conversion time, `garmin_dev` first | Days to 2 weeks | Converted 22 Nov ("app(s) has/have been converted") | Check the portal for both keys |
 | Deregistration URL, rate, responses | `wellness-api`, 100/min | (not answered; confirmed in practice) | 204 OK, 401 "OAuthToken is invalid" for dead tokens, no 429 at 100/min |
 
