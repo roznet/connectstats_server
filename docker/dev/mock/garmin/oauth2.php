@@ -138,7 +138,8 @@ if ($op === 'user_id') {
 }
 if ($op === 'permissions') {
     $userId = bearer_user();
-    reply(200, strpos($userId, 'noexport') === 0 ? ['HEALTH_EXPORT'] : ['ACTIVITY_EXPORT', 'HEALTH_EXPORT', 'WORKOUT_IMPORT']);
+    // Garmin's format (seen 2026-11-22): {"permissions":[...]}
+    reply(200, ['permissions' => strpos($userId, 'noexport') === 0 ? ['HEALTH_EXPORT'] : ['ACTIVITY_EXPORT', 'HEALTH_EXPORT', 'WORKOUT_IMPORT']]);
 }
 if ($op === 'registration') {
     if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') reply(405);

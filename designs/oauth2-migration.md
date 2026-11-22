@@ -191,7 +191,8 @@ Versions without this only have OAuth 1.0 login. They keep working for anyone si
 - [x] Store the response immediately, and skip rows that already have an OAuth 2.0 token on a re-run
 - [x] **Every live token exchanged** (changed 22 Nov after Garmin's answer, was one per Garmin user): 4,918 tokens for 4,771 users. Credentials stay per `userId`; tokens go oldest first so the newest token's grant is kept. `tokens.oauth2_exchanged_ts` marks done tokens
 - [x] Before running: fill in missing `userId` values with `url_user_id` (the script does it in `--execute`), and tokens without a `cs_user_id` are skipped and listed. On 2026-11-02, 7 tokens had no `userId`, and 7 live tokens had no `cs_user_id`
-- [ ] Run on one's own account first, check downloads for a few days, then a small batch, then all
+- [x] Own account exchanged 2026-11-22 15:59 UTC (token 1): 200; access token 24 h, refresh token 90 days, scope `PARTNER_WRITE PARTNER_READ CONNECT_READ CONNECT_WRITE`. Bearer `user/id` returns the same userId, `user/permissions` answers `{"permissions":["ACTIVITY_EXPORT"]}` (an object: login code fixed to unwrap it), forced refresh OK with a new refresh token, client credentials as form fields accepted
+- [ ] Check downloads on own account for a few days, then a small batch, then all. Originally: run on one's own account first, check downloads for a few days, then a small batch, then all
 
 ## Cleanup (January 2027)
 

@@ -777,7 +777,11 @@ class GarminProcess {
 
         list( $status, $body ) = $this->oauth2->get_with_access_token( $this->oauth2->url( 'url_oauth2_user_permissions' ), $access_token );
         $permissions = $status == 200 ? json_decode( $body, true ) : NULL;
-        if( ! is_array( $permissions ) ){
+        // Garmin answers {"permissions":["ACTIVITY_EXPORT",...]} (seen 2026-11-22); also accept a bare list
+        if( is_array( $permissions ) && isset( $permissions['permissions'] ) && is_array( $permissions['permissions'] ) ){
+            $permissions = $permissions['permissions'];
+        }
+        if( ! is_array( $permissions ) || ! array_is_list( $permissions ) ){
             // Not fatal: the login works, we just can't tell the app about missing permissions
             $this->status->error( sprintf( 'oauth2 permissions failed http=%d', $status ) );
             $permissions = NULL;
