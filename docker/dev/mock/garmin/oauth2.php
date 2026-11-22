@@ -128,6 +128,10 @@ if ($op === 'exchange') {
     if (!$token || !hash_equals(base64_encode(hash_hmac('sha1', $base, $key, true)), $signature) || strpos($token, 'dead') === 0) {
         reply(401);
     }
+    if (strpos($token, 'invalid') === 0) {
+        // Garmin's answer for a token whose grant no longer exists
+        reply(401, ['message' => 'OAuthToken is invalid', 'error' => 'The request has not been applied because it lacks valid authentication credentials for the target resource.']);
+    }
     // testtoken-b: a second token of the same Garmin user
     $users = ['testtoken' => 'testuser', 'testtoken-b' => 'testuser'];
     reply(200, issue($users[$token] ?? 'user-' . $token));

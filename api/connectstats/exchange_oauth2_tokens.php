@@ -37,6 +37,7 @@
  *   --limit=N           Max tokens to exchange in this run (default: all)
  *   --rate=N            Max exchange calls per minute (default: 150, Garmin allows 200)
  *   --max-failures=N    Stop after N failures in a row (default: 10)
+ *   --max-dead=N        Stop after N dead tokens in a row (default: 100)
  *   --user-id=ID        Only this Garmin userId (own account first)
  *   --cs-user-id=N      Only this cs_user_id
  *
@@ -50,15 +51,21 @@
  * it first from url_user_id (OAuth 1.0), in --execute mode. Tokens without a cs_user_id are
  * skipped and listed: the app can't use them.
  *
+ * Dead tokens: Garmin answers 401 "OAuthToken is invalid" for a token whose grant no longer
+ * exists (about 1%, often an old token of a user who has a newer one). Logged as DEAD and left
+ * unchanged: the secret may still be what an app install signs our requests with. They're
+ * retried on every run and gather at the head of the list, so they don't count as failures;
+ * --max-dead stops a run that only gets "invalid" answers.
+ *
  * Logs token_id, cs_user_id and userId only, never tokens.
  */
 
 include_once('../shared.php');
 
-$options = getopt('', ['execute', 'limit:', 'rate:', 'max-failures:', 'user-id:', 'cs-user-id:', 'help']);
+$options = getopt('', ['execute', 'limit:', 'rate:', 'max-failures:', 'max-dead:', 'user-id:', 'cs-user-id:', 'help']);
 
 if (isset($options['help'])) {
-    echo "Usage: php exchange_oauth2_tokens.php [--execute] [--limit=N] [--rate=N] [--max-failures=N] [--user-id=ID] [--cs-user-id=N]\n";
+    echo "Usage: php exchange_oauth2_tokens.php [--execute] [--limit=N] [--rate=N] [--max-failures=N] [--max-dead=N] [--user-id=ID] [--cs-user-id=N]\n";
     echo "Without --execute, only reports what would be done.\n";
     exit(0);
 }
@@ -67,6 +74,7 @@ $execute = isset($options['execute']);
 $limit = isset($options['limit']) ? intval($options['limit']) : 0;
 $rate = isset($options['rate']) ? intval($options['rate']) : 150;
 $max_failures = isset($options['max-failures']) ? intval($options['max-failures']) : 10;
+$max_dead = isset($options['max-dead']) ? intval($options['max-dead']) : 100;
 $only_user_id = $options['user-id'] ?? null;
 $only_cs_user_id = isset($options['cs-user-id']) ? intval($options['cs-user-id']) : 0;
 
@@ -79,8 +87,8 @@ function log_msg($fmt, ...$args) {
     printf("%s%s: %s\n", $execute ? '' : '[DRY-RUN] ', date('Y-m-d H:i:s'), vsprintf($fmt, $args));
 }
 
-if ($rate < 1 || $rate > 200 || $max_failures < 1) {
-    log_msg("ERROR: --rate must be 1 to 200 and --max-failures at least 1");
+if ($rate < 1 || $rate > 200 || $max_failures < 1 || $max_dead < 1) {
+    log_msg("ERROR: --rate must be 1 to 200, --max-failures and --max-dead at least 1");
     exit(1);
 }
 
@@ -157,9 +165,11 @@ $to_process = $limit > 0 ? array_slice($candidates, 0, $limit) : $candidates;
 log_msg("In this run: %d, about %d min at %d/min", count($to_process), ceil(count($to_process) / $rate), $rate);
 
 $done = 0;
+$dead = 0;
 $failed = 0;
 $skipped_now = 0;
 $failures_in_a_row = 0;
+$dead_in_a_row = 0;
 $interval = 60.0 / $rate;
 $start_time = microtime(true);
 
@@ -195,6 +205,15 @@ foreach ($to_process as $i => $t) {
         log_msg("OK token_id=%d cs_user_id=%d userId=%s http=%d", $token_id, $t['cs_user_id'], $userId, $status);
         $done++;
         $failures_in_a_row = 0;
+        $dead_in_a_row = 0;
+    } elseif ($status == 401 && stripos((string)$body, 'OAuthToken is invalid') !== false) {
+        log_msg("DEAD token_id=%d cs_user_id=%d userId=%s http=401 OAuthToken is invalid, left unchanged", $token_id, $t['cs_user_id'], $userId);
+        $dead++;
+        $dead_in_a_row++;
+        if ($dead_in_a_row >= $max_dead) {
+            log_msg("ERROR: %d dead tokens in a row, stopping", $dead_in_a_row);
+            break;
+        }
     } else {
         // Body without tokens: a token in the body would be one Garmin issued, don't log it
         $snippet = $json && isset($json['access_token']) ? '(token response without refresh_token)' : substr((string)$body, 0, 200);
@@ -211,7 +230,7 @@ foreach ($to_process as $i => $t) {
         }
     }
 
-    if (($done + $failed) > 0 && ($done + $failed) % 500 == 0) {
+    if (($done + $dead + $failed) > 0 && ($done + $dead + $failed) % 500 == 0) {
         log_msg("Progress: %d / %d", $i + 1, count($to_process));
     }
 
@@ -222,6 +241,6 @@ foreach ($to_process as $i => $t) {
 }
 
 log_msg("=== Summary ===");
-log_msg("Exchanged: %d, failed: %d, skipped: %d, in %d s", $done, $failed, $skipped_now, microtime(true) - $start_time);
+log_msg("Exchanged: %d, dead: %d, failed: %d, skipped: %d, in %d s", $done, $dead, $failed, $skipped_now, microtime(true) - $start_time);
 
-exit($failures_in_a_row >= $max_failures ? 1 : 0);
+exit($failures_in_a_row >= $max_failures || $dead_in_a_row >= $max_dead ? 1 : 0);

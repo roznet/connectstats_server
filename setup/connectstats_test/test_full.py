@@ -414,6 +414,21 @@ def _test_oauth2(client: ConnectStatsClient, config: Config, suite: TestSuite, a
     after = _db_query(config, "SELECT refresh_token FROM garmin_oauth2 WHERE userId = 'testuser'")
     suite.check(before == after, "exchange run again does nothing")
     _db_execute(config, "DELETE FROM tokens WHERE userAccessToken = 'testtoken-b'")
+
+    # Dead tokens (Garmin: "OAuthToken is invalid"): left unchanged, not counted as failures,
+    # so 12 in a row don't stop the run; --max-dead does
+    for i in range(12):
+        _db_execute(config, "INSERT INTO tokens (cs_user_id, userId, userAccessToken, userAccessTokenSecret) "
+                            "VALUES (998, 'exchange-dead-user', %s, %s)", (f"invalid-x{i:02d}", f"secret-invalid-x{i:02d}"))
+    suite.start_test("exchange: dead tokens left unchanged, run continues")
+    ok = _run_php("exchange_oauth2_tokens.php", ["--execute", "--rate=200", "--user-id=exchange-dead-user"], cs_dir, verbose=suite.verbose)
+    unchanged = _db_query(config, "SELECT COUNT(*) FROM tokens WHERE userId = 'exchange-dead-user' "
+                                  "AND userAccessTokenSecret IS NOT NULL AND oauth2_exchanged_ts IS NULL")[0][0]
+    suite.check(ok and unchanged == 12, "exchange: dead tokens left unchanged, run continues", f"ok={ok} unchanged={unchanged}")
+    suite.start_test("exchange stops after --max-dead")
+    ok = _run_php("exchange_oauth2_tokens.php", ["--execute", "--rate=200", "--max-dead=5", "--user-id=exchange-dead-user"], cs_dir, verbose=suite.verbose)
+    suite.check(not ok, "exchange stops after --max-dead", f"ok={ok}")
+    _db_execute(config, "DELETE FROM tokens WHERE userId = 'exchange-dead-user'")
     suite.start_test("oauth1 app auth works after exchange")
     resp = client.get("api/connectstats/search?token_id=1&start=0&limit=5", token_id=1)
     suite.check(resp.ok, "oauth1 app auth works after exchange", f"status={resp.status}")

@@ -192,7 +192,10 @@ Versions without this only have OAuth 1.0 login. They keep working for anyone si
 - [x] **Every live token exchanged** (changed 22 Nov after Garmin's answer, was one per Garmin user): 4,918 tokens for 4,771 users. Credentials stay per `userId`; tokens go oldest first so the newest token's grant is kept. `tokens.oauth2_exchanged_ts` marks done tokens
 - [x] Before running: fill in missing `userId` values with `url_user_id` (the script does it in `--execute`), and tokens without a `cs_user_id` are skipped and listed. On 2026-11-02, 7 tokens had no `userId`, and 7 live tokens had no `cs_user_id`
 - [x] Own account exchanged 2026-11-22 15:59 UTC (token 1): 200; access token 24 h, refresh token 90 days, scope `PARTNER_WRITE PARTNER_READ CONNECT_READ CONNECT_WRITE`. Bearer `user/id` returns the same userId, `user/permissions` answers `{"permissions":["ACTIVITY_EXPORT"]}` (an object: login code fixed to unwrap it), forced refresh OK with a new refresh token, client credentials as form fields accepted
-- [ ] Check downloads on own account for a few days, then a small batch, then all. Originally: run on one's own account first, check downloads for a few days, then a small batch, then all
+- [x] Own account: Bearer FIT download confirmed 22 Nov (strength workout, 16:13 UTC), opened in the app
+- [x] Batch of 100 (22 Nov 16:20 UTC): 99 × 200, 1 dead (401 "OAuthToken is invalid": a 2019 token of a user with a newer working token), no 429, 40 s
+- [x] Dead tokens: logged as DEAD and left unchanged (the secret may still sign an app install's requests), not counted as failures; `--max-dead` (100) stops a run of only "invalid" answers
+- [ ] Full run, then re-runs after `garmin_login` is on and just before 31 Dec, for OAuth 1.0 logins made in the meantime. Was: check downloads on own account for a few days, then a small batch, then all. Originally: run on one's own account first, check downloads for a few days, then a small batch, then all
 
 ## Cleanup (January 2027)
 

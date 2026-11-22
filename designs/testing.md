@@ -107,7 +107,7 @@ Requires at least one user with token_id 1 and 2 in the DB:
 - `validateuser` → JSON with `token_id`
 - File with invalid `activity_id` → graceful error (not 500)
 
-### `full` — End-to-End Integration (114 tests)
+### `full` — End-to-End Integration (116 tests)
 
 Destructive — resets the database, then:
 1. **Reset**: `GET /api/connectstats/reset` with system auth (requires `serviceKey`)
