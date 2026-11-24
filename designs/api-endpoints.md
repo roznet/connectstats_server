@@ -327,7 +327,7 @@ Health check for the API.
 }
 ```
 
-`redirect` only when `api_redirect_url` is set. `garmin_login` and `garmin_client_id` only when `garmin_login` is `oauth2` and `oauth2ClientId` is set; without them the app uses OAuth 1.0 for new logins.
+`redirect` only when `api_redirect_url` is set. `garmin_login` and `garmin_client_id` only when `oauth2ClientId` is set and either `garmin_login` is `oauth2` (everyone) or the caller's IP is in `garmin_login_test_ips` (to try OAuth 2.0 login from one phone first); without them the app uses OAuth 1.0 for new logins.
 
 ### App Status
 

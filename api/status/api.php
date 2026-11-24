@@ -38,9 +38,18 @@ $status = array(
 if( isset( $api_config['api_redirect_url'] ) ){
     $status[ 'redirect' ] = $api_config['api_redirect_url'];
 }
-# Garmin login flow for new logins (see designs/oauth2-migration.md). Sent only when both are
-# set; otherwise the app uses OAuth 1.0. The client id isn't secret: it's in the authorization URL.
-if( ( $api_config['garmin_login'] ?? '' ) === 'oauth2' && ! empty( $api_config['oauth2ClientId'] ) ){
+# Garmin login flow for new logins (see designs/oauth2-migration.md). Sent only with oauth2ClientId,
+# and either garmin_login = oauth2 (everyone) or the caller's IP in garmin_login_test_ips (a list,
+# to try OAuth 2.0 login from one phone first). Otherwise the app uses OAuth 1.0. The client id
+# isn't secret: it's in the authorization URL. REMOTE_ADDR is the client's IP (Apache remoteip
+# behind Caddy).
+$garmin_login_test_ips = $api_config['garmin_login_test_ips'] ?? array();
+if( ! is_array( $garmin_login_test_ips ) ){
+    $garmin_login_test_ips = array_map( 'trim', explode( ',', (string)$garmin_login_test_ips ) );
+}
+$garmin_login_on = ( $api_config['garmin_login'] ?? '' ) === 'oauth2'
+    || in_array( $_SERVER['REMOTE_ADDR'] ?? '', $garmin_login_test_ips, true );
+if( $garmin_login_on && ! empty( $api_config['oauth2ClientId'] ) ){
     $status[ 'garmin_login' ] = 'oauth2';
     $status[ 'garmin_client_id' ] = $api_config['oauth2ClientId'];
 }
